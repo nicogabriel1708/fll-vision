@@ -1,0 +1,17 @@
+version: "3.9"
+
+services:
+  fll_vision:
+    build: .
+    container_name: fll_vision
+    runtime: nvidia          # enable GPU
+    environment:
+      LEFT_GPU: 0
+      RIGHT_GPU: 0
+    volumes:
+      - ./:/app              # mount entire project folder, including match.mp4
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+    shm_size: "2gb"          # improves VideoCapture memory handling
+
