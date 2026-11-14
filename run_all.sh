@@ -17,7 +17,8 @@ echo "=================================================================="
 install_runtime_deps() {
     docker compose exec fll-vision pip install --no-cache-dir --root-user-action=ignore -q \
         --extra-index-url https://pypi.ngc.nvidia.com \
-        polars pyarrow matplotlib pillow psutil tqdm ultralytics-thop ultralytics-platform onnx-graphsurgeon onnxruntime
+        polars pyarrow matplotlib pillow psutil tqdm ultralytics-thop ultralytics-platform \
+        onnx-graphsurgeon onnxruntime lief polygraphy "nvidia-modelopt[onnx]"
 }
 
 # Fall 1: PyTorch-Modell (.pt) ist bereits fertig trainiert, aber TensorRT (.engine) fehlt noch

@@ -62,6 +62,9 @@ RUN pip install --no-cache-dir --root-user-action=ignore \
     onnxslim \
     onnx-graphsurgeon \
     onnxruntime \
+    lief \
+    polygraphy \
+    "nvidia-modelopt[onnx]" \
     scipy && \
     pip install --no-cache-dir --root-user-action=ignore --no-deps ultralytics lapx filterpy
 
