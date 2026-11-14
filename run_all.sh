@@ -14,31 +14,49 @@ echo "  5. Train YOLO11s on DGX Spark GPU"
 echo "  6. Compile FP16 TensorRT Engine (.engine)"
 echo "=================================================================="
 
-# Falls bereits ein fertig trainiertes Modell in models/ liegt, vorab interaktiv fragen:
-if [ -f "models/fll_yolo11s.engine" ] || [ -f "models/fll_yolo11s.pt" ]; then
+install_runtime_deps() {
+    docker compose exec fll-vision pip install --no-cache-dir --root-user-action=ignore -q \
+        --extra-index-url https://pypi.ngc.nvidia.com \
+        polars pyarrow matplotlib pillow psutil tqdm ultralytics-thop ultralytics-platform onnx-graphsurgeon onnxruntime
+}
+
+# Fall 1: PyTorch-Modell (.pt) ist bereits fertig trainiert, aber TensorRT (.engine) fehlt noch
+if [ -f "models/fll_yolo11s.pt" ] && [ ! -f "models/fll_yolo11s.engine" ] && [ -t 0 ]; then
     echo ""
-    echo "[Info] Ein trainiertes Modell existiert bereits in ./models/:"
-    ls -lh models/fll_yolo11s.* 2>/dev/null || true
-    if [ -t 0 ]; then
-        read -r -p "Möchtest du trotzdem neu trainieren? [y/N]: " RETRAIN_ANS
-        case "$RETRAIN_ANS" in
-            [yY]|[yY][eE][sS]|[jJ]|[jJ][aA])
-                echo "[OK] Starte neues Training..."
-                ;;
-            *)
-                echo "[Abgebrochen] Bestehendes Modell in ./models/ bleibt aktiv."
-                exit 0
-                ;;
-        esac
-    fi
+    echo "[Info] Trainiertes PyTorch-Modell (models/fll_yolo11s.pt) gefunden, aber TensorRT-Engine fehlt noch."
+    read -r -p "Nur den TensorRT-Export (.pt -> .engine) ausführen statt komplett neu zu trainieren? [Y/n]: " ONLY_EXPORT_ANS
+    case "$ONLY_EXPORT_ANS" in
+        ""|[yY]|[yY][eE][sS]|[jJ]|[jJ][aA])
+            install_runtime_deps
+            docker compose exec -e YOLO_AUTOINSTALL=False fll-vision \
+                python3 scripts/export_trt.py --weights /workspace/models/fll_yolo11s.pt --imgsz 960 --half
+            docker compose restart fll-vision
+            exit 0
+            ;;
+    esac
 fi
 
-# Sicherstellen, dass alle Ultralytics-Hilfspakete ohne pip-Warnungen vorhanden sind
+# Fall 2: Sowohl .pt als auch .engine existieren bereits
+if [ -f "models/fll_yolo11s.engine" ] && [ -t 0 ]; then
+    echo ""
+    echo "[Info] Ein fertig trainiertes & kompiliertes Modell existiert bereits in ./models/:"
+    ls -lh models/fll_yolo11s.* 2>/dev/null || true
+    read -r -p "Möchtest du trotzdem neu trainieren? [y/N]: " RETRAIN_ANS
+    case "$RETRAIN_ANS" in
+        [yY]|[yY][eE][sS]|[jJ]|[jJ][aA])
+            echo "[OK] Starte neues Training..."
+            ;;
+        *)
+            echo "[Abgebrochen] Bestehendes Modell in ./models/ bleibt aktiv."
+            exit 0
+            ;;
+    esac
+fi
+
 if docker ps --format '{{.Names}}' | grep -q '^fll-vision$'; then
-    echo "[Container aktiv] Führe Training direkt im laufenden fll-vision Container aus (kein Port-8080-Konflikt)..."
-    docker compose exec fll-vision pip install --no-cache-dir --root-user-action=ignore -q \
-        polars pyarrow matplotlib pillow psutil tqdm ultralytics-thop ultralytics-platform
-    docker compose exec fll-vision python3 scripts/auto_pipeline.py \
+    echo "[Container aktiv] Führe Training direkt im laufenden fll-vision Container aus..."
+    install_runtime_deps
+    docker compose exec -e YOLO_AUTOINSTALL=False fll-vision python3 scripts/auto_pipeline.py \
         --config /workspace/config/config.yaml \
         --videos-dir /workspace/data/training_videos \
         --target-frames 600 \
@@ -48,5 +66,6 @@ if docker ps --format '{{.Names}}' | grep -q '^fll-vision$'; then
     docker compose restart fll-vision
 else
     echo "[Container gestoppt] Starte Trainings-Container ohne Port-Bindung (--no-deps)..."
-    docker compose run --rm --no-deps fll-vision bash -c "pip install --no-cache-dir --root-user-action=ignore -q polars pyarrow matplotlib pillow psutil tqdm ultralytics-thop ultralytics-platform && python3 scripts/auto_pipeline.py --config /workspace/config/config.yaml --videos-dir /workspace/data/training_videos --target-frames 600 --epochs 80 --batch 32 $*"
+    docker compose run --rm --no-deps -e YOLO_AUTOINSTALL=False fll-vision bash -c \
+        "pip install --no-cache-dir --root-user-action=ignore -q --extra-index-url https://pypi.ngc.nvidia.com polars pyarrow matplotlib pillow psutil tqdm ultralytics-thop ultralytics-platform onnx-graphsurgeon onnxruntime && python3 scripts/auto_pipeline.py --config /workspace/config/config.yaml --videos-dir /workspace/data/training_videos --target-frames 600 --epochs 80 --batch 32 $*"
 fi

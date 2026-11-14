@@ -14,10 +14,13 @@ ENV PYTHONUNBUFFERED=1
 
 # Target NVIDIA GB10 Blackwell GPU Architecture (SM 12.0 / 12.1) & Grace ARM64 CPU cores
 ENV TORCH_CUDA_ARCH_LIST="12.0;12.1"
+# Target NVIDIA GB10 Blackwell GPU Architecture (SM 12.0 / 12.1) & Grace ARM64 CPU cores
+ENV TORCH_CUDA_ARCH_LIST="12.0;12.1"
 ENV CUDA_MODULE_LOADING=LAZY
 ENV OMP_NUM_THREADS=8
 ENV MKL_NUM_THREADS=8
 ENV OPENCV_FFMPEG_CAPTURE_OPTIONS="rtsp_transport;tcp"
+ENV YOLO_AUTOINSTALL=False
 
 WORKDIR /workspace
 
@@ -37,6 +40,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Install Python packages without overwriting NGC's hardware-optimized torch & tensorrt
 COPY requirements.txt /workspace/requirements.txt
 RUN pip install --no-cache-dir --root-user-action=ignore \
+    --extra-index-url https://pypi.ngc.nvidia.com \
     opencv-python-headless \
     polars \
     pyarrow \
@@ -56,6 +60,8 @@ RUN pip install --no-cache-dir --root-user-action=ignore \
     websockets \
     onnx \
     onnxslim \
+    onnx-graphsurgeon \
+    onnxruntime \
     scipy && \
     pip install --no-cache-dir --root-user-action=ignore --no-deps ultralytics lapx filterpy
 
