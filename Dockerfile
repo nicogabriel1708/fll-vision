@@ -36,10 +36,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Install Python packages without overwriting NGC's hardware-optimized torch & tensorrt
 COPY requirements.txt /workspace/requirements.txt
-RUN pip install --no-cache-dir --no-deps ultralytics lapx filterpy && \
-    pip install --no-cache-dir \
+RUN pip install --no-cache-dir --root-user-action=ignore \
     opencv-python-headless \
     polars \
+    pyarrow \
     matplotlib \
     pillow \
     psutil \
@@ -47,6 +47,7 @@ RUN pip install --no-cache-dir --no-deps ultralytics lapx filterpy && \
     requests \
     py-cpuinfo \
     ultralytics-thop \
+    ultralytics-platform \
     pyyaml \
     pydantic \
     fastapi \
@@ -55,7 +56,8 @@ RUN pip install --no-cache-dir --no-deps ultralytics lapx filterpy && \
     websockets \
     onnx \
     onnxslim \
-    scipy
+    scipy && \
+    pip install --no-cache-dir --root-user-action=ignore --no-deps ultralytics lapx filterpy
 
 # Create required directory structure (including empty training_videos directory)
 RUN mkdir -p /workspace/config \

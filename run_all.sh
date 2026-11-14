@@ -33,10 +33,11 @@ if [ -f "models/fll_yolo11s.engine" ] || [ -f "models/fll_yolo11s.pt" ]; then
     fi
 fi
 
-# Sicherstellen, dass 'polars' im Container installiert ist (wird von Ultralytics beim Checkpoint-Speichern benötigt)
+# Sicherstellen, dass alle Ultralytics-Hilfspakete ohne pip-Warnungen vorhanden sind
 if docker ps --format '{{.Names}}' | grep -q '^fll-vision$'; then
     echo "[Container aktiv] Führe Training direkt im laufenden fll-vision Container aus (kein Port-8080-Konflikt)..."
-    docker compose exec fll-vision pip install --no-cache-dir -q polars matplotlib pillow psutil tqdm ultralytics-thop
+    docker compose exec fll-vision pip install --no-cache-dir --root-user-action=ignore -q \
+        polars pyarrow matplotlib pillow psutil tqdm ultralytics-thop ultralytics-platform
     docker compose exec fll-vision python3 scripts/auto_pipeline.py \
         --config /workspace/config/config.yaml \
         --videos-dir /workspace/data/training_videos \
@@ -47,5 +48,5 @@ if docker ps --format '{{.Names}}' | grep -q '^fll-vision$'; then
     docker compose restart fll-vision
 else
     echo "[Container gestoppt] Starte Trainings-Container ohne Port-Bindung (--no-deps)..."
-    docker compose run --rm --no-deps fll-vision bash -c "pip install --no-cache-dir -q polars matplotlib pillow psutil tqdm ultralytics-thop && python3 scripts/auto_pipeline.py --config /workspace/config/config.yaml --videos-dir /workspace/data/training_videos --target-frames 600 --epochs 80 --batch 32 $*"
+    docker compose run --rm --no-deps fll-vision bash -c "pip install --no-cache-dir --root-user-action=ignore -q polars pyarrow matplotlib pillow psutil tqdm ultralytics-thop ultralytics-platform && python3 scripts/auto_pipeline.py --config /workspace/config/config.yaml --videos-dir /workspace/data/training_videos --target-frames 600 --epochs 80 --batch 32 $*"
 fi
