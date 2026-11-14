@@ -93,7 +93,6 @@ class FLLDetector:
 				iou=self.cfg.iou_threshold,
 				max_det=self.cfg.max_det,
 				device=self.cfg.device,
-				quantize="fp16" if self.cfg.half_precision else "fp32",
 				verbose=False,
 			)
 

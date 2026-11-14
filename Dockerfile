@@ -39,6 +39,14 @@ COPY requirements.txt /workspace/requirements.txt
 RUN pip install --no-cache-dir --no-deps ultralytics lapx filterpy && \
     pip install --no-cache-dir \
     opencv-python-headless \
+    polars \
+    matplotlib \
+    pillow \
+    psutil \
+    tqdm \
+    requests \
+    py-cpuinfo \
+    ultralytics-thop \
     pyyaml \
     pydantic \
     fastapi \

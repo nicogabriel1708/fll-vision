@@ -14,18 +14,38 @@ echo "  5. Train YOLO11s on DGX Spark GPU"
 echo "  6. Compile FP16 TensorRT Engine (.engine)"
 echo "=================================================================="
 
-# Startet den Trainingslauf im Container OHNE Port-Konflikt auf 8080
-docker compose run --rm --no-deps fll-vision \
-  python3 scripts/auto_pipeline.py \
-  --config /workspace/config/config.yaml \
-  --videos-dir /workspace/data/training_videos \
-  --target-frames 600 \
-  --epochs 80 \
-  --batch 32
+# Falls bereits ein fertig trainiertes Modell in models/ liegt, vorab interaktiv fragen:
+if [ -f "models/fll_yolo11s.engine" ] || [ -f "models/fll_yolo11s.pt" ]; then
+    echo ""
+    echo "[Info] Ein trainiertes Modell existiert bereits in ./models/:"
+    ls -lh models/fll_yolo11s.* 2>/dev/null || true
+    if [ -t 0 ]; then
+        read -r -p "Möchtest du trotzdem neu trainieren? [y/N]: " RETRAIN_ANS
+        case "$RETRAIN_ANS" in
+            [yY]|[yY][eE][sS]|[jJ]|[jJ][aA])
+                echo "[OK] Starte neues Training..."
+                ;;
+            *)
+                echo "[Abgebrochen] Bestehendes Modell in ./models/ bleibt aktiv."
+                exit 0
+                ;;
+        esac
+    fi
+fi
 
-# Falls der Hauptcontainer bereits im Hintergrund läuft, kurz neu starten,
-# damit er die neue models/fll_yolo11s.engine direkt lädt:
+# Sicherstellen, dass 'polars' im Container installiert ist (wird von Ultralytics beim Checkpoint-Speichern benötigt)
 if docker ps --format '{{.Names}}' | grep -q '^fll-vision$'; then
-    echo "[OK] Starte laufenden fll-vision Container neu, um das neue Modell zu aktivieren..."
+    echo "[Container aktiv] Führe Training direkt im laufenden fll-vision Container aus (kein Port-8080-Konflikt)..."
+    docker compose exec fll-vision pip install --no-cache-dir -q polars matplotlib pillow psutil tqdm ultralytics-thop
+    docker compose exec fll-vision python3 scripts/auto_pipeline.py \
+        --config /workspace/config/config.yaml \
+        --videos-dir /workspace/data/training_videos \
+        --target-frames 600 \
+        --epochs 80 \
+        --batch 32 "$@"
+    echo "[OK] Starte fll-vision Container neu, um die neue TensorRT-Engine live zu aktivieren..."
     docker compose restart fll-vision
+else
+    echo "[Container gestoppt] Starte Trainings-Container ohne Port-Bindung (--no-deps)..."
+    docker compose run --rm --no-deps fll-vision bash -c "pip install --no-cache-dir -q polars matplotlib pillow psutil tqdm ultralytics-thop && python3 scripts/auto_pipeline.py --config /workspace/config/config.yaml --videos-dir /workspace/data/training_videos --target-frames 600 --epochs 80 --batch 32 $*"
 fi

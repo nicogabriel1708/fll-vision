@@ -222,6 +222,10 @@ def step2_split_dataset(samples: List[Tuple[Path, Path]], dataset_dir: Path, val
 	for split_name, split_list in [("train", train_samples), ("val", val_samples)]:
 		s_img_dir = dataset_dir / "images" / split_name
 		s_lbl_dir = dataset_dir / "labels" / split_name
+		if s_img_dir.exists():
+			shutil.rmtree(s_img_dir)
+		if s_lbl_dir.exists():
+			shutil.rmtree(s_lbl_dir)
 		s_img_dir.mkdir(parents=True, exist_ok=True)
 		s_lbl_dir.mkdir(parents=True, exist_ok=True)
 
@@ -298,35 +302,89 @@ def main():
 	parser.add_argument("--target-frames", type=int, default=600)
 	parser.add_argument("--epochs", type=int, default=80)
 	parser.add_argument("--batch", type=int, default=32)
+	parser.add_argument("--force", action="store_true", help="Force re-extraction and re-training without asking")
+	parser.add_argument("--skip-extract", action="store_true", help="Skip Step 1 & 2 if dataset already exists")
 	parser.add_argument("--run-tracker-after", action="store_true", default=False)
 	args = parser.parse_args()
 
 	cfg = load_config(args.config)
-	homography = TableHomography(cfg.table)
+	target_pt = Path(cfg.inference.weights_pt)
+	target_engine = Path(cfg.inference.engine_trt)
+	is_interactive = sys.stdin.isatty() and not args.force
 
-	videos_dir = Path(args.videos_dir if args.videos_dir else cfg.video.training_videos_dir)
-	fallback_vid = Path(str(cfg.video.source)) if not str(cfg.video.source).isdigit() else None
-	videos = discover_training_videos(videos_dir, fallback_video=fallback_vid)
-
-	if not videos:
-		raise RuntimeError(
-			f"No training videos found in {videos_dir}! Place one long video or multiple short videos there."
-		)
+	# 1. Check if a finished trained model already exists
+	if (target_pt.exists() or target_engine.exists()) and is_interactive:
+		print("\n==================================================================")
+		print(" [Info] Ein trainiertes Modell existiert bereits:")
+		if target_pt.exists():
+			print(f"   - PyTorch Weights : {target_pt}")
+		if target_engine.exists():
+			print(f"   - TensorRT Engine : {target_engine}")
+		print("==================================================================")
+		ans = input("Möchtest du trotzdem neu trainieren? [y/N]: ").strip().lower()
+		if ans not in ("y", "yes", "j", "ja"):
+			logger.info("Training übersprungen – bestehendes Modell wird weiterverwendet.")
+			return
 
 	raw_dir = Path("/workspace/data/dataset/auto_raw")
 	dataset_dir = Path("/workspace/data/dataset")
-
-	samples = step1_extract_and_autolabel(
-		videos=videos,
-		homography=homography,
-		raw_dir=raw_dir,
-		target_total_frames=args.target_frames,
-		device=cfg.inference.device,
+	existing_train_imgs = (
+		list((dataset_dir / "images" / "train").glob("*.jpg")) if (dataset_dir / "images" / "train").exists() else []
 	)
-	if len(samples) < 10:
-		raise RuntimeError("Too few active frames extracted. Check video or active table half configuration.")
+	existing_val_imgs = (
+		list((dataset_dir / "images" / "val").glob("*.jpg")) if (dataset_dir / "images" / "val").exists() else []
+	)
 
-	step2_split_dataset(samples, dataset_dir=dataset_dir, val_ratio=0.15)
+	reuse_existing_dataset = False
+	if len(existing_train_imgs) > 0 and len(existing_val_imgs) > 0:
+		if args.skip_extract:
+			reuse_existing_dataset = True
+		elif is_interactive:
+			print("\n==================================================================")
+			print(" [Dataset gefunden] Bereits extrahiertes & annotiertes Dataset vorhanden:")
+			print(f"   - Train-Bilder : {len(existing_train_imgs)}")
+			print(f"   - Val-Bilder   : {len(existing_val_imgs)}")
+			print("==================================================================")
+			ans_ds = (
+				input(
+					"Video-Extraktion & Auto-Labeling (Schritt 1 & 2) überspringen und direkt mit Schritt 3 (Training) starten? [Y/n]: "
+				)
+				.strip()
+				.lower()
+			)
+			if ans_ds in ("", "y", "yes", "j", "ja"):
+				reuse_existing_dataset = True
+
+	if not reuse_existing_dataset:
+		homography = TableHomography(cfg.table)
+		videos_dir = Path(args.videos_dir if args.videos_dir else cfg.video.training_videos_dir)
+		fallback_vid = (
+			Path(str(cfg.video.source))
+			if not str(cfg.video.source).isdigit() and not str(cfg.video.source).startswith("/dev/")
+			else None
+		)
+		videos = discover_training_videos(videos_dir, fallback_video=fallback_vid)
+
+		if not videos:
+			raise RuntimeError(
+				f"No training videos found in {videos_dir}! Place one long video or multiple short videos there."
+			)
+
+		samples = step1_extract_and_autolabel(
+			videos=videos,
+			homography=homography,
+			raw_dir=raw_dir,
+			target_total_frames=args.target_frames,
+			device=cfg.inference.device,
+		)
+		if len(samples) < 10:
+			raise RuntimeError("Too few active frames extracted. Check video or active table half configuration.")
+
+		step2_split_dataset(samples, dataset_dir=dataset_dir, val_ratio=0.15)
+	else:
+		logger.info(
+			f"Überspringe Schritt 1 & 2 – verwende vorhandenes Dataset ({len(existing_train_imgs)} train, {len(existing_val_imgs)} val Bilder)."
+		)
 
 	step3_train_and_export_trt(
 		dataset_yaml="/workspace/config/dataset.yaml",
@@ -334,8 +392,8 @@ def main():
 		epochs=args.epochs,
 		imgsz=cfg.inference.imgsz,
 		batch=args.batch,
-		target_pt=Path(cfg.inference.weights_pt),
-		target_engine=Path(cfg.inference.engine_trt),
+		target_pt=target_pt,
+		target_engine=target_engine,
 		device="0",
 	)
 
