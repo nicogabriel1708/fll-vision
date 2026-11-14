@@ -1,234 +1,289 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="de">
-<head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <link rel="icon" href="/static/images/fll-logo-bg-white.png" />
-    <title>Admin Panel</title>
-    <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body {
-            background: #0f172a;
-            color: #f8fafc;
-            font-family: system-ui, -apple-system, sans-serif;
-            padding: 20px;
-            max-width: 1180px;
-            margin: 0 auto;
-        }
-        .topbar {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding-bottom: 14px;
-            border-bottom: 1px solid #334155;
-            margin-bottom: 20px;
-        }
-        .topbar h1 { font-size: 22px; color: #38bdf8; }
-        .grid { display: grid; grid-template-columns: 1fr 1.5fr; gap: 20px; align-items: start; }
-        .card {
-            background: #1e293b;
-            border: 1px solid #334155;
-            border-radius: 12px;
-            padding: 20px;
-            margin-bottom: 20px;
-        }
-        h2 { font-size: 16px; color: #38bdf8; margin-bottom: 14px; }
-        label { display: block; font-size: 12.5px; font-weight: 600; color: #94a3b8; margin-bottom: 5px; margin-top: 10px; }
-        input, select {
-            width: 100%;
-            padding: 10px 12px;
-            background: #0f172a;
-            border: 1px solid #475569;
-            border-radius: 8px;
-            color: #fff;
-            font-size: 14px;
-        }
-        .btn {
-            cursor: pointer;
-            border: none;
-            border-radius: 8px;
-            padding: 10px 16px;
-            font-weight: 700;
-            font-size: 13.5px;
-            color: #fff;
-            background: #0284c7;
-            text-decoration: none;
-            display: inline-block;
-        }
-        .btn.danger { background: #ef4444; padding: 6px 12px; font-size: 12px; }
-        table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
-        th, td { padding: 10px; border-bottom: 1px solid #334155; text-align: left; }
-        th { color: #38bdf8; background: #0f172a; }
-        .role-pill {
-            padding: 3px 10px;
-            border-radius: 999px;
-            font-size: 11px;
-            font-weight: 700;
-            text-transform: uppercase;
-            background: rgba(56, 189, 248, 0.15);
-            color: #38bdf8;
-        }
-    </style>
-</head>
-<body>
-    <div class="topbar">
-        <h1>👑 Admin Panel</h1>
-        <div style="display:flex;gap:10px;">
-            <a class="btn" href="/configuration">🛠️ System Configuration</a>
-            <a class="btn" href="/control">🎮 Volunteer Control</a>
-            <a class="btn" href="/">📺 Match-Stream</a>
-            <form method="POST" action="/logout" style="display:inline;">
-                <button type="submit" class="btn" style="background:#334155;">Abmelden</button>
-            </form>
-        </div>
-    </div>
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<link rel="icon" href="/static/images/fll-logo-bg-white.png" />
+		<title>Admin Panel</title>
+		<style>
+			* {
+				box-sizing: border-box;
+				margin: 0;
+				padding: 0;
+			}
+			body {
+				background: #0f172a;
+				color: #f8fafc;
+				font-family:
+					system-ui,
+					-apple-system,
+					sans-serif;
+				padding: 20px;
+				max-width: 1180px;
+				margin: 0 auto;
+			}
+			.topbar {
+				display: flex;
+				justify-content: space-between;
+				align-items: center;
+				padding-bottom: 14px;
+				border-bottom: 1px solid #334155;
+				margin-bottom: 20px;
+			}
+			.topbar h1 {
+				font-size: 22px;
+				color: #38bdf8;
+			}
+			.grid {
+				display: grid;
+				grid-template-columns: 1fr 1.5fr;
+				gap: 20px;
+				align-items: start;
+			}
+			.card {
+				background: #1e293b;
+				border: 1px solid #334155;
+				border-radius: 12px;
+				padding: 20px;
+				margin-bottom: 20px;
+			}
+			h2 {
+				font-size: 16px;
+				color: #38bdf8;
+				margin-bottom: 14px;
+			}
+			label {
+				display: block;
+				font-size: 12.5px;
+				font-weight: 600;
+				color: #94a3b8;
+				margin-bottom: 5px;
+				margin-top: 10px;
+			}
+			input,
+			select {
+				width: 100%;
+				padding: 10px 12px;
+				background: #0f172a;
+				border: 1px solid #475569;
+				border-radius: 8px;
+				color: #fff;
+				font-size: 14px;
+			}
+			.btn {
+				cursor: pointer;
+				border: none;
+				border-radius: 8px;
+				padding: 10px 16px;
+				font-weight: 700;
+				font-size: 13.5px;
+				color: #fff;
+				background: #0284c7;
+				text-decoration: none;
+				display: inline-block;
+			}
+			.btn.danger {
+				background: #ef4444;
+				padding: 6px 12px;
+				font-size: 12px;
+			}
+			table {
+				width: 100%;
+				border-collapse: collapse;
+				font-size: 13.5px;
+			}
+			th,
+			td {
+				padding: 10px;
+				border-bottom: 1px solid #334155;
+				text-align: left;
+			}
+			th {
+				color: #38bdf8;
+				background: #0f172a;
+			}
+			.role-pill {
+				padding: 3px 10px;
+				border-radius: 999px;
+				font-size: 11px;
+				font-weight: 700;
+				text-transform: uppercase;
+				background: rgba(56, 189, 248, 0.15);
+				color: #38bdf8;
+			}
+		</style>
+	</head>
+	<body>
+		<div class="topbar">
+			<h1>👑 Admin Panel</h1>
+			<div style="display: flex; gap: 10px">
+				<a class="btn" href="/configuration">🛠️ System Configuration</a>
+				<a class="btn" href="/control">🎮 Volunteer Control</a>
+				<a class="btn" href="/">📺 Match-Stream</a>
+				<form method="POST" action="/logout" style="display: inline">
+					<button type="submit" class="btn" style="background: #334155">Abmelden</button>
+				</form>
+			</div>
+		</div>
 
-    <div class="grid">
-        <div>
-            <div class="card">
-                <h2>➕ Neuen Benutzer anlegen / Passwort ändern</h2>
-                <label>Benutzername</label>
-                <input id="newUsername" type="text" placeholder="z.B. volunteers, engineers oder admin" />
+		<div class="grid">
+			<div>
+				<div class="card">
+					<h2>➕ Neuen Benutzer anlegen / Passwort ändern</h2>
+					<label>Benutzername</label>
+					<input id="newUsername" type="text" placeholder="z.B. volunteers, engineers oder admin" />
 
-                <label>Passwort (PBKDF2-SHA256 gehasht)</label>
-                <input id="newPassword" type="password" placeholder="Mindestens 4 Zeichen" />
+					<label>Passwort (PBKDF2-SHA256 gehasht)</label>
+					<input id="newPassword" type="password" placeholder="Mindestens 4 Zeichen" />
 
-                <label>Berechtigungs-Bereich (Rolle)</label>
-                <select id="newRole">
-                    <option value="volunteers">volunteers – Volunteer Control (/control)</option>
-                    <option value="engineers">engineers – System Configuration (/configuration)</option>
-                    <option value="admin">admin – Admin Panel (/admin, Vollzugriff)</option>
-                </select>
+					<label>Berechtigungs-Bereich (Rolle)</label>
+					<select id="newRole">
+						<option value="volunteers">volunteers – Volunteer Control (/control)</option>
+						<option value="engineers">engineers – System Configuration (/configuration)</option>
+						<option value="admin">admin – Admin Panel (/admin, Vollzugriff)</option>
+					</select>
 
-                <button class="btn" style="width:100%;margin-top:16px;" onclick="createUser()">
-                    💾 Benutzer speichern
-                </button>
-                <div id="adminMsg" style="margin-top:10px;font-size:13px;color:#34d399;"></div>
-            </div>
+					<button class="btn" style="width: 100%; margin-top: 16px" onclick="createUser()">
+						💾 Benutzer speichern
+					</button>
+					<div id="adminMsg" style="margin-top: 10px; font-size: 13px; color: #34d399"></div>
+				</div>
 
-            <div class="card">
-                <h2>🤖 Neues FLL-Team zur Datenbank hinzufügen</h2>
-                <label>Team-Nummer</label>
-                <input id="teamNum" type="text" placeholder="z.B. 107" />
-                <label>Team-Name</label>
-                <input id="teamName" type="text" placeholder="z.B. RoboLions" />
-                <label>Schule / Organisation</label>
-                <input id="teamOrg" type="text" placeholder="z.B. HTL Hollabrunn" />
-                <button class="btn" style="width:100%;margin-top:16px;background:#10b981;color:#022c22;" onclick="addTeam()">
-                    ➕ Team speichern
-                </button>
-            </div>
-        </div>
+				<div class="card">
+					<h2>🤖 Neues FLL-Team zur Datenbank hinzufügen</h2>
+					<label>Team-Nummer</label>
+					<input id="teamNum" type="text" placeholder="z.B. 107" />
+					<label>Team-Name</label>
+					<input id="teamName" type="text" placeholder="z.B. RoboLions" />
+					<label>Schule / Organisation</label>
+					<input id="teamOrg" type="text" placeholder="z.B. HTL Hollabrunn" />
+					<button
+						class="btn"
+						style="width: 100%; margin-top: 16px; background: #10b981; color: #022c22"
+						onclick="addTeam()"
+					>
+						➕ Team speichern
+					</button>
+				</div>
+			</div>
 
-        <div>
-            <div class="card">
-                <h2>🔐 Registrierte System-Benutzer</h2>
-                <table>
-                    <thead>
-                        <tr>
-                            <th>ID</th>
-                            <th>Benutzername</th>
-                            <th>Rolle / Bereich</th>
-                            <th>Aktion</th>
-                        </tr>
-                    </thead>
-                    <tbody id="usersTableBody"></tbody>
-                </table>
-            </div>
+			<div>
+				<div class="card">
+					<h2>🔐 Registrierte System-Benutzer</h2>
+					<table>
+						<thead>
+							<tr>
+								<th>ID</th>
+								<th>Benutzername</th>
+								<th>Rolle / Bereich</th>
+								<th>Aktion</th>
+							</tr>
+						</thead>
+						<tbody id="usersTableBody"></tbody>
+					</table>
+				</div>
 
-            <div class="card">
-                <h2>📋 Gespeicherte FLL-Teams</h2>
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Nummer</th>
-                            <th>Team-Name</th>
-                            <th>Organisation</th>
-                        </tr>
-                    </thead>
-                    <tbody id="teamsTableBody"></tbody>
-                </table>
-            </div>
-        </div>
-    </div>
+				<div class="card">
+					<h2>📋 Gespeicherte FLL-Teams</h2>
+					<table>
+						<thead>
+							<tr>
+								<th>Nummer</th>
+								<th>Team-Name</th>
+								<th>Organisation</th>
+							</tr>
+						</thead>
+						<tbody id="teamsTableBody"></tbody>
+					</table>
+				</div>
+			</div>
+		</div>
 
-    <script>
-        async function loadAdminData() {
-            const resU = await fetch('/api/admin/users');
-            if (resU.ok) {
-                const users = await resU.json();
-                document.getElementById('usersTableBody').innerHTML = users.map(u => `
+		<script>
+			async function loadAdminData() {
+				const resU = await fetch("/api/admin/users");
+				if (resU.ok) {
+					const users = await resU.json();
+					document.getElementById("usersTableBody").innerHTML = users
+						.map(
+							(u) => `
                     <tr>
                         <td>${u.id}</td>
                         <td><b>${u.username}</b></td>
                         <td><span class="role-pill">${u.role}</span></td>
                         <td><button class="btn danger" onclick="deleteUser(${u.id})">Löschen</button></td>
                     </tr>
-                `).join('');
-            }
-            const resT = await fetch('/api/teams');
-            if (resT.ok) {
-                const teams = await resT.json();
-                document.getElementById('teamsTableBody').innerHTML = teams.map(t => `
+                `,
+						)
+						.join("");
+				}
+				const resT = await fetch("/api/teams");
+				if (resT.ok) {
+					const teams = await resT.json();
+					document.getElementById("teamsTableBody").innerHTML = teams
+						.map(
+							(t) => `
                     <tr>
                         <td><b>#${t.team_number}</b></td>
                         <td>${t.team_name}</td>
-                        <td>${t.organization || ''}</td>
+                        <td>${t.organization || ""}</td>
                     </tr>
-                `).join('');
-            }
-        }
+                `,
+						)
+						.join("");
+				}
+			}
 
-        async function createUser() {
-            const username = document.getElementById('newUsername').value;
-            const password = document.getElementById('newPassword').value;
-            const role = document.getElementById('newRole').value;
-            const res = await fetch('/api/admin/users', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ username, password, role })
-            });
-            const msg = document.getElementById('adminMsg');
-            if (res.ok) {
-                msg.style.color = '#34d399';
-                msg.textContent = '✅ Benutzer erfolgreich gespeichert!';
-                document.getElementById('newUsername').value = '';
-                document.getElementById('newPassword').value = '';
-                loadAdminData();
-            } else {
-                const err = await res.json();
-                msg.style.color = '#f87171';
-                msg.textContent = '❌ ' + (err.detail || 'Fehler');
-            }
-        }
+			async function createUser() {
+				const username = document.getElementById("newUsername").value;
+				const password = document.getElementById("newPassword").value;
+				const role = document.getElementById("newRole").value;
+				const res = await fetch("/api/admin/users", {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ username, password, role }),
+				});
+				const msg = document.getElementById("adminMsg");
+				if (res.ok) {
+					msg.style.color = "#34d399";
+					msg.textContent = "✅ Benutzer erfolgreich gespeichert!";
+					document.getElementById("newUsername").value = "";
+					document.getElementById("newPassword").value = "";
+					loadAdminData();
+				} else {
+					const err = await res.json();
+					msg.style.color = "#f87171";
+					msg.textContent = "❌ " + (err.detail || "Fehler");
+				}
+			}
 
-        async function deleteUser(uid) {
-            const res = await fetch('/api/admin/users/' + uid, { method: 'DELETE' });
-            if (res.ok) loadAdminData();
-            else {
-                const err = await res.json();
-                alert(err.detail || 'Benutzer konnte nicht gelöscht werden.');
-            }
-        }
+			async function deleteUser(uid) {
+				const res = await fetch("/api/admin/users/" + uid, { method: "DELETE" });
+				if (res.ok) loadAdminData();
+				else {
+					const err = await res.json();
+					alert(err.detail || "Benutzer konnte nicht gelöscht werden.");
+				}
+			}
 
-        async function addTeam() {
-            const team_number = document.getElementById('teamNum').value;
-            const team_name = document.getElementById('teamName').value;
-            const organization = document.getElementById('teamOrg').value;
-            const res = await fetch('/api/admin/teams', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ team_number, team_name, organization })
-            });
-            if (res.ok) {
-                document.getElementById('teamNum').value = '';
-                document.getElementById('teamName').value = '';
-                document.getElementById('teamOrg').value = '';
-                loadAdminData();
-            }
-        }
+			async function addTeam() {
+				const team_number = document.getElementById("teamNum").value;
+				const team_name = document.getElementById("teamName").value;
+				const organization = document.getElementById("teamOrg").value;
+				const res = await fetch("/api/admin/teams", {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ team_number, team_name, organization }),
+				});
+				if (res.ok) {
+					document.getElementById("teamNum").value = "";
+					document.getElementById("teamName").value = "";
+					document.getElementById("teamOrg").value = "";
+					loadAdminData();
+				}
+			}
 
-        loadAdminData();
-    </script>
-</body>
+			loadAdminData();
+		</script>
+	</body>
 </html>

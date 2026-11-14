@@ -1,659 +1,678 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-	<meta charset="utf-8" />
-	<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-	<meta name="theme-color" content="orange" />
-	<link rel="icon" href="/static/images/fll-logo-bg-white.png" />
-	<link rel="apple-touch-icon" href="/static/images/fll-logo-bg-white.png" />
-	<title>Match-Stream</title>
-	<style>
-		/* ==========================================================================
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+		<meta name="theme-color" content="orange" />
+		<link rel="icon" href="/static/images/fll-logo-bg-white.png" />
+		<link rel="apple-touch-icon" href="/static/images/fll-logo-bg-white.png" />
+		<title>Match-Stream</title>
+		<style>
+			/* ==========================================================================
 		   Exact CSS from fll-robot-game-livestream: src/index.css
 		   ========================================================================== */
-		@font-face {
-			font-family: "Inter";
-			src: url("/static/fonts/Inter/Inter-VariableFont_opsz,wght.ttf") format("truetype");
-			font-weight: 100 900;
-			font-style: normal;
-		}
+			@font-face {
+				font-family: "Inter";
+				src: url("/static/fonts/Inter/Inter-VariableFont_opsz,wght.ttf") format("truetype");
+				font-weight: 100 900;
+				font-style: normal;
+			}
 
-		@font-face {
-			font-family: "Inter";
-			src: url("/static/fonts/Inter/Inter-Italic-VariableFont_opsz,wght.ttf") format("truetype");
-			font-weight: 100 900;
-			font-style: italic;
-		}
+			@font-face {
+				font-family: "Inter";
+				src: url("/static/fonts/Inter/Inter-Italic-VariableFont_opsz,wght.ttf") format("truetype");
+				font-weight: 100 900;
+				font-style: italic;
+			}
 
-		@font-face {
-			font-family: "CARDOT";
-			src: url("/static/fonts/CARDOT/CARDOT_Regular.ttf") format("truetype");
-			font-weight: normal;
-			font-style: normal;
-		}
+			@font-face {
+				font-family: "CARDOT";
+				src: url("/static/fonts/CARDOT/CARDOT_Regular.ttf") format("truetype");
+				font-weight: normal;
+				font-style: normal;
+			}
 
-		@font-face {
-			font-family: "CARDOT";
-			src: url("/static/fonts/CARDOT/CARDOT_Semibold.ttf") format("truetype");
-			font-weight: bold;
-			font-style: normal;
-		}
+			@font-face {
+				font-family: "CARDOT";
+				src: url("/static/fonts/CARDOT/CARDOT_Semibold.ttf") format("truetype");
+				font-weight: bold;
+				font-style: normal;
+			}
 
-		@font-face {
-			font-family: "Digital Dismay";
-			src: url("/static/fonts/Digital_Dismay/Digital_Dismay.otf") format("opentype");
-			font-weight: normal;
-			font-style: normal;
-		}
+			@font-face {
+				font-family: "Digital Dismay";
+				src: url("/static/fonts/Digital_Dismay/Digital_Dismay.otf") format("opentype");
+				font-weight: normal;
+				font-style: normal;
+			}
 
-		:root {
-			--color-white: white;
-			--color-orange: #f39100;
-			--color-red: #ed1c24;
-			--color-blue: #0066b3;
-			--color-dark-red: #ad0000;
-			--color-purple-blue: #667eea;
-			--border-width: clamp(10px, 0.75vw, 0.75vw);
-			--team-name-padding: calc(var(--border-width) * 1.5);
+			:root {
+				--color-white: white;
+				--color-orange: #f39100;
+				--color-red: #ed1c24;
+				--color-blue: #0066b3;
+				--color-dark-red: #ad0000;
+				--color-purple-blue: #667eea;
+				--border-width: clamp(10px, 0.75vw, 0.75vw);
+				--team-name-padding: calc(var(--border-width) * 1.5);
 
-			/* dynamically set by Topbar logic */
-			--red-team-name-width: 0px;
-			--blue-team-name-width: 0px;
-			--team-name-background-width: 0px;
-			--team-name-background-cutout-width: 0px;
-		}
+				/* dynamically set by Topbar logic */
+				--red-team-name-width: 0px;
+				--blue-team-name-width: 0px;
+				--team-name-background-width: 0px;
+				--team-name-background-cutout-width: 0px;
+			}
 
-		* {
-			font-family: "Inter", sans-serif;
-			box-sizing: border-box;
-		}
+			* {
+				font-family: "Inter", sans-serif;
+				box-sizing: border-box;
+			}
 
-		body {
-			margin: 0;
-			overflow: hidden;
-			background-color: #000;
-		}
+			body {
+				margin: 0;
+				overflow: hidden;
+				background-color: #000;
+			}
 
-		.cardot,
-		.cardot * {
-			font-family: "CARDOT", sans-serif;
-		}
+			.cardot,
+			.cardot * {
+				font-family: "CARDOT", sans-serif;
+			}
 
-		.seven-segment-display,
-		.seven-segment-display * {
-			font-family: "Digital Dismay", monospace;
-		}
+			.seven-segment-display,
+			.seven-segment-display * {
+				font-family: "Digital Dismay", monospace;
+			}
 
-		.bold {
-			font-weight: bold;
-		}
+			.bold {
+				font-weight: bold;
+			}
 
-		.children-center {
-			display: flex;
-			justify-content: center;
-			align-items: center;
-		}
+			.children-center {
+				display: flex;
+				justify-content: center;
+				align-items: center;
+			}
 
-		.hidden {
-			display: none !important;
-		}
+			.hidden {
+				display: none !important;
+			}
 
-		/* ==========================================================================
+			/* ==========================================================================
 		   Exact CSS from src/App.css & src/pages/match-stream-page/MatchStreamPage.css
 		   ========================================================================== */
-		.app__container {
-			width: 100dvw;
-			height: 100dvh;
-			position: relative;
-			overflow: hidden;
-		}
+			.app__container {
+				width: 100dvw;
+				height: 100dvh;
+				position: relative;
+				overflow: hidden;
+			}
 
-		.match-stream-page__container {
-			width: 100%;
-			height: 100%;
-			display: grid;
-			grid-template-rows: auto 1fr;
-			grid-template-columns: 1fr 1fr;
-		}
-
-		@media only screen and (orientation: portrait) {
 			.match-stream-page__container {
-				grid-template-rows: 1fr auto 1fr;
-				grid-template-columns: 1fr;
+				width: 100%;
+				height: 100%;
+				display: grid;
+				grid-template-rows: auto 1fr;
+				grid-template-columns: 1fr 1fr;
 			}
 
-			.match-stream-page__container > :nth-child(1) {
-				grid-row-start: 2;
+			@media only screen and (orientation: portrait) {
+				.match-stream-page__container {
+					grid-template-rows: 1fr auto 1fr;
+					grid-template-columns: 1fr;
+				}
+
+				.match-stream-page__container > :nth-child(1) {
+					grid-row-start: 2;
+				}
+
+				.match-stream-page__container > :nth-child(2) {
+					grid-row-start: 1;
+				}
+
+				.match-stream-page__container > :nth-child(3) {
+					grid-row-start: 3;
+				}
 			}
 
-			.match-stream-page__container > :nth-child(2) {
-				grid-row-start: 1;
+			@media only screen and (max-width: 800px) {
+				:root {
+					--border-width: clamp(9px, 0.75vw, 0.75vw);
+				}
 			}
 
-			.match-stream-page__container > :nth-child(3) {
-				grid-row-start: 3;
+			@media only screen and (max-width: 600px) {
+				:root {
+					--border-width: clamp(8px, 0.75vw, 0.75vw);
+				}
 			}
-		}
 
-		@media only screen and (max-width: 800px) {
-			:root {
-				--border-width: clamp(9px, 0.75vw, 0.75vw);
-			}
-		}
-
-		@media only screen and (max-width: 600px) {
-			:root {
-				--border-width: clamp(8px, 0.75vw, 0.75vw);
-			}
-		}
-
-		/* ==========================================================================
+			/* ==========================================================================
 		   Exact CSS from src/pages/match-stream-page/components/topbar/Topbar.css
 		   ========================================================================== */
-		@keyframes slide {
-			from {
-				transform: translateX(var(--offset-start));
+			@keyframes slide {
+				from {
+					transform: translateX(var(--offset-start));
+				}
+
+				to {
+					transform: translateX(var(--offset-end));
+				}
 			}
 
-			to {
-				transform: translateX(var(--offset-end));
+			.topbar {
+				display: grid;
+				grid-column-end: span 2;
+				grid-template-columns: 1fr auto 1fr;
+				background-color: var(--color-orange);
+				border-top: var(--border-width) solid var(--color-orange);
+				border-bottom: var(--border-width) solid var(--color-orange);
+				color: var(--color-white);
+				font-size: clamp(14px, 2vw, 42px);
 			}
-		}
 
-		.topbar {
-			display: grid;
-			grid-column-end: span 2;
-			grid-template-columns: 1fr auto 1fr;
-			background-color: var(--color-orange);
-			border-top: var(--border-width) solid var(--color-orange);
-			border-bottom: var(--border-width) solid var(--color-orange);
-			color: var(--color-white);
-			font-size: clamp(14px, 2vw, 42px);
-		}
+			.team-name__wrapper {
+				padding: var(--team-name-padding);
+				overflow: hidden;
+				animation: slide 1s;
+			}
 
-		.team-name__wrapper {
-			padding: var(--team-name-padding);
-			overflow: hidden;
-			animation: slide 1s;
-		}
+			.team-name__wrapper--red {
+				background-color: var(--color-red);
+				clip-path: polygon(0 0, 100% 0, calc(100% - var(--team-name-background-cutout-width)) 100%, 0 100%);
+				padding-right: calc(var(--team-name-padding) + var(--team-name-background-cutout-width));
+				--offset-start: -100%;
+				--offset-end: 0;
+			}
 
-		.team-name__wrapper--red {
-			background-color: var(--color-red);
-			clip-path: polygon(0 0, 100% 0, calc(100% - var(--team-name-background-cutout-width)) 100%, 0 100%);
-			padding-right: calc(var(--team-name-padding) + var(--team-name-background-cutout-width));
-			--offset-start: -100%;
-			--offset-end: 0;
-		}
+			.team-name__wrapper--blue {
+				background-color: var(--color-blue);
+				clip-path: polygon(var(--team-name-background-cutout-width) 0, 100% 0, 100% 100%, 0 100%);
+				padding-left: calc(var(--team-name-padding) + var(--team-name-background-cutout-width));
+				--offset-start: 100%;
+				--offset-end: 0;
+			}
 
-		.team-name__wrapper--blue {
-			background-color: var(--color-blue);
-			clip-path: polygon(var(--team-name-background-cutout-width) 0, 100% 0, 100% 100%, 0 100%);
-			padding-left: calc(var(--team-name-padding) + var(--team-name-background-cutout-width));
-			--offset-start: 100%;
-			--offset-end: 0;
-		}
+			.team-name {
+				padding-top: 0.15em;
+				white-space: nowrap;
+				overflow: hidden;
+				text-overflow: ellipsis;
+			}
 
-		.team-name {
-			padding-top: 0.15em;
-			white-space: nowrap;
-			overflow: hidden;
-			text-overflow: ellipsis;
-		}
-
-		.countdown-timer__wrapper {
-			padding: 0 20px;
-		}
-
-		.countdown-timer__container {
-			font-size: clamp(24px, 4vw, 72px);
-			padding-top: 0.06em;
-			position: relative;
-		}
-
-		.countdown-timer__background {
-			position: absolute;
-			opacity: 0.15;
-		}
-
-		.countdown-timer {
-			position: relative;
-		}
-
-		.marquee {
-			overflow: visible;
-			text-overflow: clip;
-			animation: slide 10s linear infinite;
-		}
-
-		.marquee.team-name--red {
-			--offset-start: calc(
-				0.5 *
-					(var(--red-team-name-width) + var(--team-name-background-width) + var(--team-name-background-cutout-width)) -
-					var(--team-name-padding)
-			);
-			--offset-end: calc(
-				-0.5 * (var(--red-team-name-width) + var(--team-name-background-width) -
-							var(--team-name-background-cutout-width))
-			);
-		}
-
-		.marquee.team-name--blue {
-			--offset-start: calc(
-				0.5 *
-					(var(--blue-team-name-width) + var(--team-name-background-width) - var(--team-name-background-cutout-width))
-			);
-			--offset-end: calc(
-				-0.5 * (
-						var(--blue-team-name-width) + var(--team-name-background-width) +
-							var(--team-name-background-cutout-width)
-					) + var(--team-name-padding)
-			);
-		}
-
-		@media only screen and (max-width: 1000px) {
 			.countdown-timer__wrapper {
-				padding: 0 10px;
+				padding: 0 20px;
 			}
-		}
 
-		@media only screen and (max-width: 500px) {
-			.countdown-timer__wrapper {
-				padding: 0;
+			.countdown-timer__container {
+				font-size: clamp(24px, 4vw, 72px);
+				padding-top: 0.06em;
+				position: relative;
 			}
-		}
 
-		/* ==========================================================================
+			.countdown-timer__background {
+				position: absolute;
+				opacity: 0.15;
+			}
+
+			.countdown-timer {
+				position: relative;
+			}
+
+			.marquee {
+				overflow: visible;
+				text-overflow: clip;
+				animation: slide 10s linear infinite;
+			}
+
+			.marquee.team-name--red {
+				--offset-start: calc(
+					0.5 *
+						(
+							var(--red-team-name-width) + var(--team-name-background-width) +
+								var(--team-name-background-cutout-width)
+						) -
+						var(--team-name-padding)
+				);
+				--offset-end: calc(
+					-0.5 *
+						(
+							var(--red-team-name-width) + var(--team-name-background-width) -
+								var(--team-name-background-cutout-width)
+						)
+				);
+			}
+
+			.marquee.team-name--blue {
+				--offset-start: calc(
+					0.5 *
+						(
+							var(--blue-team-name-width) + var(--team-name-background-width) -
+								var(--team-name-background-cutout-width)
+						)
+				);
+				--offset-end: calc(
+					-0.5 *
+						(
+							var(--blue-team-name-width) + var(--team-name-background-width) +
+								var(--team-name-background-cutout-width)
+						) +
+						var(--team-name-padding)
+				);
+			}
+
+			@media only screen and (max-width: 1000px) {
+				.countdown-timer__wrapper {
+					padding: 0 10px;
+				}
+			}
+
+			@media only screen and (max-width: 500px) {
+				.countdown-timer__wrapper {
+					padding: 0;
+				}
+			}
+
+			/* ==========================================================================
 		   Exact CSS from src/pages/match-stream-page/components/timer/Timer.css
 		   ========================================================================== */
-		.timer--red {
-			color: var(--color-dark-red);
-		}
+			.timer--red {
+				color: var(--color-dark-red);
+			}
 
-		.timer__digit--invisible {
-			visibility: hidden;
-		}
+			.timer__digit--invisible {
+				visibility: hidden;
+			}
 
-		/* ==========================================================================
+			/* ==========================================================================
 		   Exact CSS from src/pages/match-stream-page/components/video-stream/VideoStream.css
 		   ========================================================================== */
-		.video-stream__wrapper {
-			overflow: hidden;
-			position: relative;
-			background-color: #ffffff;
-			min-width: 0;
-			min-height: 0;
-		}
-
-		.video-stream__wrapper--red {
-			border: var(--border-width) solid var(--color-red);
-		}
-
-		.video-stream__wrapper--blue {
-			border: var(--border-width) solid var(--color-blue);
-		}
-
-		.video-stream {
-			width: 100%;
-			height: 100%;
-			object-fit: cover;
-			object-position: center center;
-			transition: object-position 0.5s ease-in-out;
-			display: block;
-		}
-
-		/* Exact react-spinners BounceLoader reproduction (size=100) */
-		@keyframes react-spinners-BounceLoader-bounce {
-			0%, 100% {
-				transform: scale(0);
+			.video-stream__wrapper {
+				overflow: hidden;
+				position: relative;
+				background-color: #ffffff;
+				min-width: 0;
+				min-height: 0;
 			}
-			50% {
-				transform: scale(1.0);
-			}
-		}
-		.bounce-loader {
-			position: relative;
-			width: 100px;
-			height: 100px;
-		}
-		.bounce-loader__circle {
-			position: absolute;
-			top: 0;
-			left: 0;
-			width: 100px;
-			height: 100px;
-			border-radius: 100%;
-			opacity: 0.6;
-			animation: react-spinners-BounceLoader-bounce 2.1s infinite ease-in-out;
-			animation-fill-mode: both;
-		}
-		.bounce-loader__circle--2 {
-			animation-delay: 1.05s;
-		}
-		.bounce-loader--red .bounce-loader__circle {
-			background-color: var(--color-red);
-		}
-		.bounce-loader--blue .bounce-loader__circle {
-			background-color: var(--color-blue);
-		}
 
-		/* ==========================================================================
+			.video-stream__wrapper--red {
+				border: var(--border-width) solid var(--color-red);
+			}
+
+			.video-stream__wrapper--blue {
+				border: var(--border-width) solid var(--color-blue);
+			}
+
+			.video-stream {
+				width: 100%;
+				height: 100%;
+				object-fit: cover;
+				object-position: center center;
+				transition: object-position 0.5s ease-in-out;
+				display: block;
+			}
+
+			/* Exact react-spinners BounceLoader reproduction (size=100) */
+			@keyframes react-spinners-BounceLoader-bounce {
+				0%,
+				100% {
+					transform: scale(0);
+				}
+				50% {
+					transform: scale(1);
+				}
+			}
+			.bounce-loader {
+				position: relative;
+				width: 100px;
+				height: 100px;
+			}
+			.bounce-loader__circle {
+				position: absolute;
+				top: 0;
+				left: 0;
+				width: 100px;
+				height: 100px;
+				border-radius: 100%;
+				opacity: 0.6;
+				animation: react-spinners-BounceLoader-bounce 2.1s infinite ease-in-out;
+				animation-fill-mode: both;
+			}
+			.bounce-loader__circle--2 {
+				animation-delay: 1.05s;
+			}
+			.bounce-loader--red .bounce-loader__circle {
+				background-color: var(--color-red);
+			}
+			.bounce-loader--blue .bounce-loader__circle {
+				background-color: var(--color-blue);
+			}
+
+			/* ==========================================================================
 		   Waiting / Idle Screen Overlay (Displayed only when status === 'idle')
 		   ========================================================================== */
-		.idle-screen__overlay {
-			position: fixed;
-			inset: 0;
-			z-index: 100;
-			background: var(--color-white);
-			display: flex;
-			flex-direction: column;
-			justify-content: center;
-			align-items: center;
-			gap: 28px;
-			text-align: center;
-			opacity: 0;
-			visibility: hidden;
-			pointer-events: none;
-			transition: opacity 0.35s ease, visibility 0.35s ease;
-			border-top: calc(var(--border-width) * 1.5) solid var(--color-orange);
-			border-bottom: calc(var(--border-width) * 1.5) solid var(--color-orange);
-		}
-		.idle-screen__overlay.is-idle {
-			opacity: 1;
-			visibility: visible;
-			pointer-events: auto;
-		}
-		.idle-screen__logo {
-			width: clamp(140px, 18vw, 240px);
-			height: auto;
-		}
-		.idle-screen__title {
-			font-size: clamp(24px, 3.2vw, 54px);
-			color: #111;
-			margin: 0;
-		}
-		.idle-screen__subtitle {
-			font-size: clamp(15px, 1.4vw, 22px);
-			color: #555;
-			margin: 0;
-		}
-	</style>
-</head>
-<body>
-	<div class="app__container">
-		<!-- Exact MatchStreamPage DOM Structure from MatchStreamPage.jsx, Topbar.jsx, Timer.jsx, VideoStream.jsx -->
-		<div class="match-stream-page__container">
-			<div id="topbar" class="topbar">
-				<div class="team-name__wrapper team-name__wrapper--red children-center">
-					<div id="redTeamName" class="team-name team-name--red cardot bold"></div>
-				</div>
+			.idle-screen__overlay {
+				position: fixed;
+				inset: 0;
+				z-index: 100;
+				background: var(--color-white);
+				display: flex;
+				flex-direction: column;
+				justify-content: center;
+				align-items: center;
+				gap: 28px;
+				text-align: center;
+				opacity: 0;
+				visibility: hidden;
+				pointer-events: none;
+				transition:
+					opacity 0.35s ease,
+					visibility 0.35s ease;
+				border-top: calc(var(--border-width) * 1.5) solid var(--color-orange);
+				border-bottom: calc(var(--border-width) * 1.5) solid var(--color-orange);
+			}
+			.idle-screen__overlay.is-idle {
+				opacity: 1;
+				visibility: visible;
+				pointer-events: auto;
+			}
+			.idle-screen__logo {
+				width: clamp(140px, 18vw, 240px);
+				height: auto;
+			}
+			.idle-screen__title {
+				font-size: clamp(24px, 3.2vw, 54px);
+				color: #111;
+				margin: 0;
+			}
+			.idle-screen__subtitle {
+				font-size: clamp(15px, 1.4vw, 22px);
+				color: #555;
+				margin: 0;
+			}
+		</style>
+	</head>
+	<body>
+		<div class="app__container">
+			<!-- Exact MatchStreamPage DOM Structure from MatchStreamPage.jsx, Topbar.jsx, Timer.jsx, VideoStream.jsx -->
+			<div class="match-stream-page__container">
+				<div id="topbar" class="topbar">
+					<div class="team-name__wrapper team-name__wrapper--red children-center">
+						<div id="redTeamName" class="team-name team-name--red cardot bold"></div>
+					</div>
 
-				<div class="countdown-timer__wrapper children-center">
-					<div class="countdown-timer__container seven-segment-display">
-						<div class="countdown-timer__background">8:88</div>
-						<div class="countdown-timer">
-							<div id="timerRoot" class="timer">
-								<span class="timer__minutes">
-									<span id="digitMin" class="timer__digit">2</span>
-								</span>
-								<span class="timer__colon">:</span>
-								<span class="timer__seconds">
-									<span id="digitSec10" class="timer__digit">3</span><span id="digitSec1" class="timer__digit">0</span>
-								</span>
+					<div class="countdown-timer__wrapper children-center">
+						<div class="countdown-timer__container seven-segment-display">
+							<div class="countdown-timer__background">8:88</div>
+							<div class="countdown-timer">
+								<div id="timerRoot" class="timer">
+									<span class="timer__minutes">
+										<span id="digitMin" class="timer__digit">2</span>
+									</span>
+									<span class="timer__colon">:</span>
+									<span class="timer__seconds">
+										<span id="digitSec10" class="timer__digit">3</span
+										><span id="digitSec1" class="timer__digit">0</span>
+									</span>
+								</div>
 							</div>
 						</div>
 					</div>
+
+					<div class="team-name__wrapper team-name__wrapper--blue children-center">
+						<div id="blueTeamName" class="team-name team-name--blue cardot bold"></div>
+					</div>
 				</div>
 
-				<div class="team-name__wrapper team-name__wrapper--blue children-center">
-					<div id="blueTeamName" class="team-name team-name--blue cardot bold"></div>
+				<!-- Red Team Table Video Stream (Left) -->
+				<div class="video-stream__wrapper video-stream__wrapper--red children-center">
+					<canvas id="redStreamCanvas" class="video-stream video-stream--red is-tracking hidden"></canvas>
+					<img
+						id="redStreamImg"
+						src="/video-stream/red-team"
+						alt="Red Team Video"
+						class="video-stream video-stream--red is-tracking hidden"
+					/>
+					<div id="redLoader" class="bounce-loader bounce-loader--red">
+						<span class="bounce-loader__circle"></span>
+						<span class="bounce-loader__circle bounce-loader__circle--2"></span>
+					</div>
+				</div>
+
+				<!-- Blue Team Table Video Stream (Right) -->
+				<div class="video-stream__wrapper video-stream__wrapper--blue children-center">
+					<canvas id="blueStreamCanvas" class="video-stream video-stream--blue is-tracking hidden"></canvas>
+					<img
+						id="blueStreamImg"
+						src="/video-stream/blue-team"
+						alt="Blue Team Video"
+						class="video-stream video-stream--blue is-tracking hidden"
+					/>
+					<div id="blueLoader" class="bounce-loader bounce-loader--blue">
+						<span class="bounce-loader__circle"></span>
+						<span class="bounce-loader__circle bounce-loader__circle--2"></span>
+					</div>
 				</div>
 			</div>
 
-			<!-- Red Team Table Video Stream (Left) -->
-			<div class="video-stream__wrapper video-stream__wrapper--red children-center">
-				<canvas id="redStreamCanvas" class="video-stream video-stream--red is-tracking hidden"></canvas>
+			<!-- Waiting / Idle Screen when no match is active -->
+			<div id="idleOverlay" class="idle-screen__overlay">
 				<img
-					id="redStreamImg"
-					src="/video-stream/red-team"
-					alt="Red Team Video"
-					class="video-stream video-stream--red is-tracking hidden"
+					src="/static/images/fll-logo-bg-transparent.png"
+					alt="FIRST LEGO League Logo"
+					class="idle-screen__logo"
 				/>
-				<div id="redLoader" class="bounce-loader bounce-loader--red">
-					<span class="bounce-loader__circle"></span>
-					<span class="bounce-loader__circle bounce-loader__circle--2"></span>
-				</div>
-			</div>
-
-			<!-- Blue Team Table Video Stream (Right) -->
-			<div class="video-stream__wrapper video-stream__wrapper--blue children-center">
-				<canvas id="blueStreamCanvas" class="video-stream video-stream--blue is-tracking hidden"></canvas>
-				<img
-					id="blueStreamImg"
-					src="/video-stream/blue-team"
-					alt="Blue Team Video"
-					class="video-stream video-stream--blue is-tracking hidden"
-				/>
-				<div id="blueLoader" class="bounce-loader bounce-loader--blue">
-					<span class="bounce-loader__circle"></span>
-					<span class="bounce-loader__circle bounce-loader__circle--2"></span>
-				</div>
+				<h1 class="idle-screen__title cardot bold">FIRST LEGO League Robot Game</h1>
+				<p class="idle-screen__subtitle">Waiting for next match to start…</p>
 			</div>
 		</div>
 
-		<!-- Waiting / Idle Screen when no match is active -->
-		<div id="idleOverlay" class="idle-screen__overlay">
-			<img src="/static/images/fll-logo-bg-transparent.png" alt="FIRST LEGO League Logo" class="idle-screen__logo" />
-			<h1 class="idle-screen__title cardot bold">FIRST LEGO League Robot Game</h1>
-			<p class="idle-screen__subtitle">Waiting for next match to start…</p>
-		</div>
-	</div>
+		<script>
+			// =========================================================================
+			// 1. Exact Topbar ResizeObserver & Marquee Overflow Logic from Topbar.jsx
+			// =========================================================================
+			const topbarEl = document.getElementById("topbar");
+			const redTeamNameEl = document.getElementById("redTeamName");
+			const blueTeamNameEl = document.getElementById("blueTeamName");
 
-	<script>
-		// =========================================================================
-		// 1. Exact Topbar ResizeObserver & Marquee Overflow Logic from Topbar.jsx
-		// =========================================================================
-		const topbarEl = document.getElementById("topbar");
-		const redTeamNameEl = document.getElementById("redTeamName");
-		const blueTeamNameEl = document.getElementById("blueTeamName");
-
-		function setCSSProperty(property, value) {
-			document.documentElement.style.setProperty(property, value);
-		}
-
-		function isHorizontallyOverflowing(element) {
-			return element.scrollWidth > element.clientWidth;
-		}
-
-		function updateTopbarHeight() {
-			if (!topbarEl) return;
-			setCSSProperty("--team-name-background-cutout-width", `${topbarEl.clientHeight}px`);
-		}
-
-		function updateTeamNameWidth(teamNameEl, teamColor) {
-			if (!teamNameEl || !teamNameEl.parentElement) return;
-			setCSSProperty(`--${teamColor}-team-name-width`, `${teamNameEl.clientWidth}px`);
-			setCSSProperty("--team-name-background-width", `${teamNameEl.parentElement.clientWidth}px`);
-
-			teamNameEl.classList.remove("marquee");
-			if (isHorizontallyOverflowing(teamNameEl)) {
-				teamNameEl.classList.add("marquee");
-			}
-		}
-
-		const roTopbar = new ResizeObserver(updateTopbarHeight);
-		roTopbar.observe(topbarEl);
-
-		const roRed = new ResizeObserver(() => updateTeamNameWidth(redTeamNameEl, "red"));
-		roRed.observe(redTeamNameEl);
-
-		const roBlue = new ResizeObserver(() => updateTeamNameWidth(blueTeamNameEl, "blue"));
-		roBlue.observe(blueTeamNameEl);
-
-		// =========================================================================
-		// 2. Exact Sound Effects Logic from useSounds.js & timerSoundEffects.js
-		// =========================================================================
-		const SOUND_EFFECT_SOURCES = {
-			preCount: "/static/audio/sfx/low.mp3",
-			matchStart: "/static/audio/sfx/high.mp3",
-			mainCount: "/static/audio/sfx/beep.mp3",
-			matchEnd: "/static/audio/sfx/buzz.mp3",
-		};
-
-		const audios = Object.fromEntries(
-			Object.entries(SOUND_EFFECT_SOURCES).map(([key, src]) => [key, new Audio(src)])
-		);
-
-		function playSound(key) {
-			const audio = audios[key];
-			if (!audio) return;
-			audio.currentTime = 0;
-			audio.play().catch((err) => console.debug("Audio play blocked until user interaction:", err));
-		}
-
-		let lastPlayedSoundKey = "";
-
-		// =========================================================================
-		// 3. Exact Timer & Team Name Rendering from Timer.jsx & Topbar.jsx
-		// =========================================================================
-		const timerRootEl = document.getElementById("timerRoot");
-		const digitMinEl = document.getElementById("digitMin");
-		const digitSec10El = document.getElementById("digitSec10");
-		const digitSec1El = document.getElementById("digitSec1");
-		const idleOverlayEl = document.getElementById("idleOverlay");
-
-		function updateDigit(el, digit, timerPhase, hasTimerStarted, forceVisible = false) {
-			el.textContent = String(digit);
-			const isInvisible = hasTimerStarted && !forceVisible && timerPhase === "pre" && digit === 0;
-			el.classList.toggle("timer__digit--invisible", isInvisible);
-		}
-
-		function applyMatchSnapshot(st) {
-			if (!st) return;
-
-			// Show Idle Screen only if status === 'idle'
-			idleOverlayEl.classList.toggle("is-idle", st.status === "idle");
-
-			// Update Red & Blue Team Names
-			const redName = (st.teamNames && st.teamNames.red) || (st.team_left && st.team_left.name) || "";
-			const blueName = (st.teamNames && st.teamNames.blue) || (st.team_right && st.team_right.name) || "";
-
-			if (redTeamNameEl.textContent !== redName) {
-				redTeamNameEl.textContent = redName;
-				updateTeamNameWidth(redTeamNameEl, "red");
-			}
-			if (blueTeamNameEl.textContent !== blueName) {
-				blueTeamNameEl.textContent = blueName;
-				updateTeamNameWidth(blueTeamNameEl, "blue");
+			function setCSSProperty(property, value) {
+				document.documentElement.style.setProperty(property, value);
 			}
 
-			// Update Timer Digits & Red Color State exactly like Timer.jsx
-			const hasStarted = Boolean(st.has_timer_started);
-			const phase = st.timer_phase || "pre";
-			const dispMin = st.display_minutes != null ? st.display_minutes : 2;
-			const dispSec = st.display_seconds != null ? st.display_seconds : 30;
-			const isRed = Boolean(st.is_timer_red);
+			function isHorizontallyOverflowing(element) {
+				return element.scrollWidth > element.clientWidth;
+			}
 
-			timerRootEl.classList.toggle("timer--red", isRed);
-			updateDigit(digitMinEl, dispMin, phase, hasStarted, false);
-			updateDigit(digitSec10El, Math.floor(dispSec / 10), phase, hasStarted, dispMin > 0);
-			updateDigit(digitSec1El, dispSec % 10, phase, hasStarted, true);
+			function updateTopbarHeight() {
+				if (!topbarEl) return;
+				setCSSProperty("--team-name-background-cutout-width", `${topbarEl.clientHeight}px`);
+			}
 
-			// Trigger exact TIMER_SOUND_EFFECTS when running
-			if (st.status === "running" && st.audio_enabled !== false) {
-				const totalSec = st.total_seconds;
-				const duration = st.duration_sec || 150;
-				const tickKey = `${phase}:${totalSec}`;
-				if (tickKey !== lastPlayedSoundKey) {
-					lastPlayedSoundKey = tickKey;
-					if (phase === "pre") {
-						if (totalSec <= 3 && totalSec > 0) {
-							playSound("preCount");
-						}
-					} else if (phase === "main") {
-						if (totalSec === duration) {
-							playSound("matchStart");
-						}
-						if (totalSec <= 5 && totalSec > 0) {
-							playSound("mainCount");
-						}
-						if (totalSec === 0) {
-							playSound("matchEnd");
-						}
-					}
+			function updateTeamNameWidth(teamNameEl, teamColor) {
+				if (!teamNameEl || !teamNameEl.parentElement) return;
+				setCSSProperty(`--${teamColor}-team-name-width`, `${teamNameEl.clientWidth}px`);
+				setCSSProperty("--team-name-background-width", `${teamNameEl.parentElement.clientWidth}px`);
+
+				teamNameEl.classList.remove("marquee");
+				if (isHorizontallyOverflowing(teamNameEl)) {
+					teamNameEl.classList.add("marquee");
 				}
-			} else if (st.status === "finished" && st.audio_enabled !== false) {
-				const endKey = "main:0";
-				if (lastPlayedSoundKey !== endKey) {
-					lastPlayedSoundKey = endKey;
-					playSound("matchEnd");
-				}
-			} else if (!hasStarted) {
-				lastPlayedSoundKey = "";
 			}
-		}
 
-		// Connect Match WebSocket (/ws/match) for instant updates
-		function connectMatchWebSocket() {
-			const proto = location.protocol === "https:" ? "wss:" : "ws:";
-			const ws = new WebSocket(`${proto}//${location.host}/ws/match`);
-			ws.onmessage = (evt) => {
-				try {
-					applyMatchSnapshot(JSON.parse(evt.data));
-				} catch (e) {}
+			const roTopbar = new ResizeObserver(updateTopbarHeight);
+			roTopbar.observe(topbarEl);
+
+			const roRed = new ResizeObserver(() => updateTeamNameWidth(redTeamNameEl, "red"));
+			roRed.observe(redTeamNameEl);
+
+			const roBlue = new ResizeObserver(() => updateTeamNameWidth(blueTeamNameEl, "blue"));
+			roBlue.observe(blueTeamNameEl);
+
+			// =========================================================================
+			// 2. Exact Sound Effects Logic from useSounds.js & timerSoundEffects.js
+			// =========================================================================
+			const SOUND_EFFECT_SOURCES = {
+				preCount: "/static/audio/sfx/low.mp3",
+				matchStart: "/static/audio/sfx/high.mp3",
+				mainCount: "/static/audio/sfx/beep.mp3",
+				matchEnd: "/static/audio/sfx/buzz.mp3",
 			};
-			ws.onclose = () => setTimeout(connectMatchWebSocket, 1000);
-		}
-		connectMatchWebSocket();
 
-		// =========================================================================
-		// 4. Dual Team Video Streams (Low-Latency Binary WebSocket + MJPEG fallback)
-		// =========================================================================
-		function connectTeamStream(streamId, canvasId, imgId, loaderId) {
-			const canvas = document.getElementById(canvasId);
-			const ctx = canvas.getContext("2d");
-			const img = document.getElementById(imgId);
-			const loader = document.getElementById(loaderId);
-			const proto = location.protocol === "https:" ? "wss:" : "ws:";
-			const ws = new WebSocket(`${proto}//${location.host}/ws/stream/${streamId}`);
-			ws.binaryType = "arraybuffer";
+			const audios = Object.fromEntries(
+				Object.entries(SOUND_EFFECT_SOURCES).map(([key, src]) => [key, new Audio(src)]),
+			);
 
-			let wsLoaded = false;
+			function playSound(key) {
+				const audio = audios[key];
+				if (!audio) return;
+				audio.currentTime = 0;
+				audio.play().catch((err) => console.debug("Audio play blocked until user interaction:", err));
+			}
 
-			ws.onmessage = async (evt) => {
-				try {
-					const blob = new Blob([evt.data], { type: "image/jpeg" });
-					const bmp = await createImageBitmap(blob);
-					if (canvas.width !== bmp.width || canvas.height !== bmp.height) {
-						canvas.width = bmp.width;
-						canvas.height = bmp.height;
+			let lastPlayedSoundKey = "";
+
+			// =========================================================================
+			// 3. Exact Timer & Team Name Rendering from Timer.jsx & Topbar.jsx
+			// =========================================================================
+			const timerRootEl = document.getElementById("timerRoot");
+			const digitMinEl = document.getElementById("digitMin");
+			const digitSec10El = document.getElementById("digitSec10");
+			const digitSec1El = document.getElementById("digitSec1");
+			const idleOverlayEl = document.getElementById("idleOverlay");
+
+			function updateDigit(el, digit, timerPhase, hasTimerStarted, forceVisible = false) {
+				el.textContent = String(digit);
+				const isInvisible = hasTimerStarted && !forceVisible && timerPhase === "pre" && digit === 0;
+				el.classList.toggle("timer__digit--invisible", isInvisible);
+			}
+
+			function applyMatchSnapshot(st) {
+				if (!st) return;
+
+				// Show Idle Screen only if status === 'idle'
+				idleOverlayEl.classList.toggle("is-idle", st.status === "idle");
+
+				// Update Red & Blue Team Names
+				const redName = (st.teamNames && st.teamNames.red) || (st.team_left && st.team_left.name) || "";
+				const blueName = (st.teamNames && st.teamNames.blue) || (st.team_right && st.team_right.name) || "";
+
+				if (redTeamNameEl.textContent !== redName) {
+					redTeamNameEl.textContent = redName;
+					updateTeamNameWidth(redTeamNameEl, "red");
+				}
+				if (blueTeamNameEl.textContent !== blueName) {
+					blueTeamNameEl.textContent = blueName;
+					updateTeamNameWidth(blueTeamNameEl, "blue");
+				}
+
+				// Update Timer Digits & Red Color State exactly like Timer.jsx
+				const hasStarted = Boolean(st.has_timer_started);
+				const phase = st.timer_phase || "pre";
+				const dispMin = st.display_minutes != null ? st.display_minutes : 2;
+				const dispSec = st.display_seconds != null ? st.display_seconds : 30;
+				const isRed = Boolean(st.is_timer_red);
+
+				timerRootEl.classList.toggle("timer--red", isRed);
+				updateDigit(digitMinEl, dispMin, phase, hasStarted, false);
+				updateDigit(digitSec10El, Math.floor(dispSec / 10), phase, hasStarted, dispMin > 0);
+				updateDigit(digitSec1El, dispSec % 10, phase, hasStarted, true);
+
+				// Trigger exact TIMER_SOUND_EFFECTS when running
+				if (st.status === "running" && st.audio_enabled !== false) {
+					const totalSec = st.total_seconds;
+					const duration = st.duration_sec || 150;
+					const tickKey = `${phase}:${totalSec}`;
+					if (tickKey !== lastPlayedSoundKey) {
+						lastPlayedSoundKey = tickKey;
+						if (phase === "pre") {
+							if (totalSec <= 3 && totalSec > 0) {
+								playSound("preCount");
+							}
+						} else if (phase === "main") {
+							if (totalSec === duration) {
+								playSound("matchStart");
+							}
+							if (totalSec <= 5 && totalSec > 0) {
+								playSound("mainCount");
+							}
+							if (totalSec === 0) {
+								playSound("matchEnd");
+							}
+						}
 					}
-					ctx.drawImage(bmp, 0, 0);
-					bmp.close();
+				} else if (st.status === "finished" && st.audio_enabled !== false) {
+					const endKey = "main:0";
+					if (lastPlayedSoundKey !== endKey) {
+						lastPlayedSoundKey = endKey;
+						playSound("matchEnd");
+					}
+				} else if (!hasStarted) {
+					lastPlayedSoundKey = "";
+				}
+			}
+
+			// Connect Match WebSocket (/ws/match) for instant updates
+			function connectMatchWebSocket() {
+				const proto = location.protocol === "https:" ? "wss:" : "ws:";
+				const ws = new WebSocket(`${proto}//${location.host}/ws/match`);
+				ws.onmessage = (evt) => {
+					try {
+						applyMatchSnapshot(JSON.parse(evt.data));
+					} catch (e) {}
+				};
+				ws.onclose = () => setTimeout(connectMatchWebSocket, 1000);
+			}
+			connectMatchWebSocket();
+
+			// =========================================================================
+			// 4. Dual Team Video Streams (Low-Latency Binary WebSocket + MJPEG fallback)
+			// =========================================================================
+			function connectTeamStream(streamId, canvasId, imgId, loaderId) {
+				const canvas = document.getElementById(canvasId);
+				const ctx = canvas.getContext("2d");
+				const img = document.getElementById(imgId);
+				const loader = document.getElementById(loaderId);
+				const proto = location.protocol === "https:" ? "wss:" : "ws:";
+				const ws = new WebSocket(`${proto}//${location.host}/ws/stream/${streamId}`);
+				ws.binaryType = "arraybuffer";
+
+				let wsLoaded = false;
+
+				ws.onmessage = async (evt) => {
+					try {
+						const blob = new Blob([evt.data], { type: "image/jpeg" });
+						const bmp = await createImageBitmap(blob);
+						if (canvas.width !== bmp.width || canvas.height !== bmp.height) {
+							canvas.width = bmp.width;
+							canvas.height = bmp.height;
+						}
+						ctx.drawImage(bmp, 0, 0);
+						bmp.close();
+						if (!wsLoaded) {
+							wsLoaded = true;
+							loader.classList.add("hidden");
+							img.classList.add("hidden");
+							canvas.classList.remove("hidden");
+						}
+					} catch (e) {}
+				};
+
+				ws.onerror = () => {
 					if (!wsLoaded) {
-						wsLoaded = true;
-						loader.classList.add("hidden");
-						img.classList.add("hidden");
-						canvas.classList.remove("hidden");
+						img.onload = () => {
+							loader.classList.add("hidden");
+							img.classList.remove("hidden");
+						};
 					}
-				} catch (e) {}
-			};
+				};
 
-			ws.onerror = () => {
-				if (!wsLoaded) {
-					img.onload = () => {
-						loader.classList.add("hidden");
-						img.classList.remove("hidden");
-					};
-				}
-			};
+				ws.onclose = () => {
+					setTimeout(() => connectTeamStream(streamId, canvasId, imgId, loaderId), 1500);
+				};
+			}
 
-			ws.onclose = () => {
-				setTimeout(() => connectTeamStream(streamId, canvasId, imgId, loaderId), 1500);
-			};
-		}
-
-		connectTeamStream(1, "redStreamCanvas", "redStreamImg", "redLoader");
-		connectTeamStream(2, "blueStreamCanvas", "blueStreamImg", "blueLoader");
-	</script>
-</body>
+			connectTeamStream(1, "redStreamCanvas", "redStreamImg", "redLoader");
+			connectTeamStream(2, "blueStreamCanvas", "blueStreamImg", "blueLoader");
+		</script>
+	</body>
 </html>

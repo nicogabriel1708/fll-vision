@@ -1,673 +1,781 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="de">
-<head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <link rel="icon" href="/static/images/fll-logo-bg-white.png" />
-    <title>Volunteer Control</title>
-    <style>
-        @font-face {
-            font-family: "Inter";
-            src: url("/static/fonts/Inter/Inter-VariableFont_opsz,wght.ttf") format("truetype");
-            font-weight: 100 900;
-        }
-        @font-face {
-            font-family: "CARDOT";
-            src: url("/static/fonts/CARDOT/CARDOT_Semibold.ttf") format("truetype");
-            font-weight: bold;
-        }
-        @font-face {
-            font-family: "Digital Dismay";
-            src: url("/static/fonts/Digital_Dismay/Digital_Dismay.otf") format("opentype");
-        }
-        :root {
-            --color-white: #ffffff;
-            --color-orange: #f39100;
-            --color-red: #ed1c24;
-            --color-blue: #0066b3;
-            --color-dark-red: #ad0000;
-            --bg: #0f172a;
-            --card: #1e293b;
-            --border: #334155;
-            --text: #f8fafc;
-            --muted: #94a3b8;
-        }
-        * { box-sizing: border-box; margin: 0; padding: 0; font-family: "Inter", sans-serif; -webkit-tap-highlight-color: transparent; }
-        body {
-            background: var(--bg);
-            color: var(--text);
-            padding: 14px;
-            max-width: 820px;
-            margin: 0 auto;
-        }
-        .topbar-nav {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding-bottom: 12px;
-            margin-bottom: 14px;
-            border-bottom: 2px solid var(--color-orange);
-        }
-        .topbar-nav h1 { font-size: 18px; color: var(--color-orange); font-family: "CARDOT", sans-serif; }
-        .topbar-actions { display: flex; gap: 8px; align-items: center; }
-        .btn-sm {
-            background: #334155;
-            color: #fff;
-            text-decoration: none;
-            padding: 7px 12px;
-            border-radius: 8px;
-            font-size: 12.5px;
-            font-weight: 600;
-            border: none;
-            cursor: pointer;
-        }
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+		<link rel="icon" href="/static/images/fll-logo-bg-white.png" />
+		<title>Volunteer Control</title>
+		<style>
+			@font-face {
+				font-family: "Inter";
+				src: url("/static/fonts/Inter/Inter-VariableFont_opsz,wght.ttf") format("truetype");
+				font-weight: 100 900;
+			}
+			@font-face {
+				font-family: "CARDOT";
+				src: url("/static/fonts/CARDOT/CARDOT_Semibold.ttf") format("truetype");
+				font-weight: bold;
+			}
+			@font-face {
+				font-family: "Digital Dismay";
+				src: url("/static/fonts/Digital_Dismay/Digital_Dismay.otf") format("opentype");
+			}
+			:root {
+				--color-white: #ffffff;
+				--color-orange: #f39100;
+				--color-red: #ed1c24;
+				--color-blue: #0066b3;
+				--color-dark-red: #ad0000;
+				--bg: #0f172a;
+				--card: #1e293b;
+				--border: #334155;
+				--text: #f8fafc;
+				--muted: #94a3b8;
+			}
+			* {
+				box-sizing: border-box;
+				margin: 0;
+				padding: 0;
+				font-family: "Inter", sans-serif;
+				-webkit-tap-highlight-color: transparent;
+			}
+			body {
+				background: var(--bg);
+				color: var(--text);
+				padding: 14px;
+				max-width: 820px;
+				margin: 0 auto;
+			}
+			.topbar-nav {
+				display: flex;
+				justify-content: space-between;
+				align-items: center;
+				padding-bottom: 12px;
+				margin-bottom: 14px;
+				border-bottom: 2px solid var(--color-orange);
+			}
+			.topbar-nav h1 {
+				font-size: 18px;
+				color: var(--color-orange);
+				font-family: "CARDOT", sans-serif;
+			}
+			.topbar-actions {
+				display: flex;
+				gap: 8px;
+				align-items: center;
+			}
+			.btn-sm {
+				background: #334155;
+				color: #fff;
+				text-decoration: none;
+				padding: 7px 12px;
+				border-radius: 8px;
+				font-size: 12.5px;
+				font-weight: 600;
+				border: none;
+				cursor: pointer;
+			}
 
-        /* Live Mini Preview of the Match Topbar & Seven-Segment Timer */
-        .mini-stream-topbar {
-            display: grid;
-            grid-template-columns: 1fr auto 1fr;
-            background-color: var(--color-orange);
-            border-top: 6px solid var(--color-orange);
-            border-bottom: 6px solid var(--color-orange);
-            border-radius: 12px;
-            overflow: hidden;
-            margin-bottom: 14px;
-            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
-        }
-        .mini-team {
-            padding: 12px 14px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-family: "CARDOT", sans-serif;
-            font-weight: bold;
-            font-size: clamp(14px, 3vw, 22px);
-            color: #fff;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-        .mini-team--red { background-color: var(--color-red); }
-        .mini-team--blue { background-color: var(--color-blue); }
-        .mini-timer-box {
-            padding: 6px 16px;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            background: var(--color-orange);
-            color: #fff;
-        }
-        .mini-timer-digits {
-            font-family: "Digital Dismay", monospace;
-            font-size: 44px;
-            line-height: 1;
-        }
-        .mini-timer-digits.timer--red { color: var(--color-dark-red); }
-        .mini-status-badge {
-            font-size: 10px;
-            font-weight: 800;
-            text-transform: uppercase;
-            letter-spacing: 0.08em;
-            margin-top: 2px;
-            color: #111;
-        }
+			/* Live Mini Preview of the Match Topbar & Seven-Segment Timer */
+			.mini-stream-topbar {
+				display: grid;
+				grid-template-columns: 1fr auto 1fr;
+				background-color: var(--color-orange);
+				border-top: 6px solid var(--color-orange);
+				border-bottom: 6px solid var(--color-orange);
+				border-radius: 12px;
+				overflow: hidden;
+				margin-bottom: 14px;
+				box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+			}
+			.mini-team {
+				padding: 12px 14px;
+				display: flex;
+				align-items: center;
+				justify-content: center;
+				font-family: "CARDOT", sans-serif;
+				font-weight: bold;
+				font-size: clamp(14px, 3vw, 22px);
+				color: #fff;
+				white-space: nowrap;
+				overflow: hidden;
+				text-overflow: ellipsis;
+			}
+			.mini-team--red {
+				background-color: var(--color-red);
+			}
+			.mini-team--blue {
+				background-color: var(--color-blue);
+			}
+			.mini-timer-box {
+				padding: 6px 16px;
+				display: flex;
+				flex-direction: column;
+				align-items: center;
+				justify-content: center;
+				background: var(--color-orange);
+				color: #fff;
+			}
+			.mini-timer-digits {
+				font-family: "Digital Dismay", monospace;
+				font-size: 44px;
+				line-height: 1;
+			}
+			.mini-timer-digits.timer--red {
+				color: var(--color-dark-red);
+			}
+			.mini-status-badge {
+				font-size: 10px;
+				font-weight: 800;
+				text-transform: uppercase;
+				letter-spacing: 0.08em;
+				margin-top: 2px;
+				color: #111;
+			}
 
-        /* Mobile Touch Control Grid */
-        .touch-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 10px;
-            margin-bottom: 14px;
-        }
-        .touch-btn {
-            padding: 16px 12px;
-            border: none;
-            border-radius: 12px;
-            font-size: 15px;
-            font-weight: 800;
-            color: #fff;
-            cursor: pointer;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            gap: 4px;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
-            transition: transform 0.08s;
-        }
-        .touch-btn:active { transform: scale(0.97); }
-        .touch-btn span.kbd {
-            font-size: 11px;
-            font-weight: 600;
-            opacity: 0.85;
-            background: rgba(0, 0, 0, 0.25);
-            padding: 2px 8px;
-            border-radius: 4px;
-        }
-        .btn-start { background: linear-gradient(135deg, #10b981, #059669); grid-column: span 2; font-size: 18px; padding: 20px; }
-        .btn-restart { background: linear-gradient(135deg, #0066b3, #0284c7); }
-        .btn-abort { background: linear-gradient(135deg, #ed1c24, #b91c1c); }
-        .btn-idle { background: linear-gradient(135deg, #f39100, #d97706); }
-        .btn-swap { background: linear-gradient(135deg, #6366f1, #4f46e5); }
+			/* Mobile Touch Control Grid */
+			.touch-grid {
+				display: grid;
+				grid-template-columns: 1fr 1fr;
+				gap: 10px;
+				margin-bottom: 14px;
+			}
+			.touch-btn {
+				padding: 16px 12px;
+				border: none;
+				border-radius: 12px;
+				font-size: 15px;
+				font-weight: 800;
+				color: #fff;
+				cursor: pointer;
+				display: flex;
+				flex-direction: column;
+				align-items: center;
+				justify-content: center;
+				gap: 4px;
+				box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+				transition: transform 0.08s;
+			}
+			.touch-btn:active {
+				transform: scale(0.97);
+			}
+			.touch-btn span.kbd {
+				font-size: 11px;
+				font-weight: 600;
+				opacity: 0.85;
+				background: rgba(0, 0, 0, 0.25);
+				padding: 2px 8px;
+				border-radius: 4px;
+			}
+			.btn-start {
+				background: linear-gradient(135deg, #10b981, #059669);
+				grid-column: span 2;
+				font-size: 18px;
+				padding: 20px;
+			}
+			.btn-restart {
+				background: linear-gradient(135deg, #0066b3, #0284c7);
+			}
+			.btn-abort {
+				background: linear-gradient(135deg, #ed1c24, #b91c1c);
+			}
+			.btn-idle {
+				background: linear-gradient(135deg, #f39100, #d97706);
+			}
+			.btn-swap {
+				background: linear-gradient(135deg, #6366f1, #4f46e5);
+			}
 
-        .card {
-            background: var(--card);
-            border: 1px solid var(--border);
-            border-radius: 14px;
-            padding: 16px;
-            margin-bottom: 14px;
-        }
-        .card h2 {
-            font-size: 14px;
-            color: var(--color-orange);
-            margin-bottom: 12px;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-        }
-        .form-row {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 12px;
-            margin-bottom: 10px;
-        }
-        @media (max-width: 560px) {
-            .form-row { grid-template-columns: 1fr; }
-        }
-        label {
-            display: block;
-            font-size: 12px;
-            font-weight: 600;
-            color: var(--muted);
-            margin-bottom: 5px;
-        }
-        select, input[type="text"], input[type="number"] {
-            width: 100%;
-            padding: 11px 12px;
-            background: #0f172a;
-            border: 1px solid #475569;
-            border-radius: 10px;
-            color: #fff;
-            font-size: 14px;
-        }
-        .team-box-red { border-left: 4px solid var(--color-red); padding-left: 10px; }
-        .team-box-blue { border-left: 4px solid var(--color-blue); padding-left: 10px; }
+			.card {
+				background: var(--card);
+				border: 1px solid var(--border);
+				border-radius: 14px;
+				padding: 16px;
+				margin-bottom: 14px;
+			}
+			.card h2 {
+				font-size: 14px;
+				color: var(--color-orange);
+				margin-bottom: 12px;
+				text-transform: uppercase;
+				letter-spacing: 0.05em;
+			}
+			.form-row {
+				display: grid;
+				grid-template-columns: 1fr 1fr;
+				gap: 12px;
+				margin-bottom: 10px;
+			}
+			@media (max-width: 560px) {
+				.form-row {
+					grid-template-columns: 1fr;
+				}
+			}
+			label {
+				display: block;
+				font-size: 12px;
+				font-weight: 600;
+				color: var(--muted);
+				margin-bottom: 5px;
+			}
+			select,
+			input[type="text"],
+			input[type="number"] {
+				width: 100%;
+				padding: 11px 12px;
+				background: #0f172a;
+				border: 1px solid #475569;
+				border-radius: 10px;
+				color: #fff;
+				font-size: 14px;
+			}
+			.team-box-red {
+				border-left: 4px solid var(--color-red);
+				padding-left: 10px;
+			}
+			.team-box-blue {
+				border-left: 4px solid var(--color-blue);
+				padding-left: 10px;
+			}
 
-        .preset-row {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 8px;
-            margin-top: 8px;
-        }
-        .preset-btn {
-            flex: 1;
-            min-width: 90px;
-            padding: 10px;
-            background: #334155;
-            color: #fff;
-            border: 1px solid #475569;
-            border-radius: 8px;
-            font-size: 13px;
-            font-weight: 700;
-            cursor: pointer;
-        }
-        .apply-btn {
-            width: 100%;
-            padding: 14px;
-            background: var(--color-orange);
-            color: #fff;
-            border: none;
-            border-radius: 10px;
-            font-size: 15px;
-            font-weight: 800;
-            cursor: pointer;
-            margin-top: 8px;
-        }
-        .shortcuts-list {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(175px, 1fr));
-            gap: 8px;
-            font-size: 12.5px;
-            color: var(--muted);
-        }
-        .shortcuts-list code {
-            background: #0f172a;
-            color: var(--color-orange);
-            padding: 2px 6px;
-            border-radius: 4px;
-            font-weight: 700;
-        }
-    </style>
-</head>
-<body>
-    <div class="topbar-nav">
-        <h1>Volunteer Control</h1>
-        <div class="topbar-actions">
-            <a class="btn-sm" href="/" target="_blank">📺 Match-Stream</a>
-            <a class="btn-sm" href="/configuration">⚙️ System Configuration</a>
-            <form method="POST" action="/logout" style="display:inline;">
-                <button type="submit" class="btn-sm">Logout</button>
-            </form>
-        </div>
-    </div>
+			.preset-row {
+				display: flex;
+				flex-wrap: wrap;
+				gap: 8px;
+				margin-top: 8px;
+			}
+			.preset-btn {
+				flex: 1;
+				min-width: 90px;
+				padding: 10px;
+				background: #334155;
+				color: #fff;
+				border: 1px solid #475569;
+				border-radius: 8px;
+				font-size: 13px;
+				font-weight: 700;
+				cursor: pointer;
+			}
+			.apply-btn {
+				width: 100%;
+				padding: 14px;
+				background: var(--color-orange);
+				color: #fff;
+				border: none;
+				border-radius: 10px;
+				font-size: 15px;
+				font-weight: 800;
+				cursor: pointer;
+				margin-top: 8px;
+			}
+			.shortcuts-list {
+				display: grid;
+				grid-template-columns: repeat(auto-fit, minmax(175px, 1fr));
+				gap: 8px;
+				font-size: 12.5px;
+				color: var(--muted);
+			}
+			.shortcuts-list code {
+				background: #0f172a;
+				color: var(--color-orange);
+				padding: 2px 6px;
+				border-radius: 4px;
+				font-weight: 700;
+			}
+		</style>
+	</head>
+	<body>
+		<div class="topbar-nav">
+			<h1>Volunteer Control</h1>
+			<div class="topbar-actions">
+				<a class="btn-sm" href="/" target="_blank">📺 Match-Stream</a>
+				<a class="btn-sm" href="/configuration">⚙️ System Configuration</a>
+				<form method="POST" action="/logout" style="display: inline">
+					<button type="submit" class="btn-sm">Logout</button>
+				</form>
+			</div>
+		</div>
 
-    <!-- Live Mirror of the Match-Stream Topbar -->
-    <div class="mini-stream-topbar">
-        <div class="mini-team mini-team--red" id="previewRedName">Red Team</div>
-        <div class="mini-timer-box">
-            <div class="mini-timer-digits" id="previewTimer">2:30</div>
-            <div class="mini-status-badge" id="previewPhase">READY</div>
-        </div>
-        <div class="mini-team mini-team--blue" id="previewBlueName">Blue Team</div>
-    </div>
+		<!-- Live Mirror of the Match-Stream Topbar -->
+		<div class="mini-stream-topbar">
+			<div class="mini-team mini-team--red" id="previewRedName">Red Team</div>
+			<div class="mini-timer-box">
+				<div class="mini-timer-digits" id="previewTimer">2:30</div>
+				<div class="mini-status-badge" id="previewPhase">READY</div>
+			</div>
+			<div class="mini-team mini-team--blue" id="previewBlueName">Blue Team</div>
+		</div>
 
-    <!-- Mobile Touch Match Controls -->
-    <div class="touch-grid">
-        <button class="touch-btn btn-start" onclick="sendAction('toggle_start_pause')">
-            <span id="startPauseLabel">▶ START MATCH (10s PRE-COUNT + 2:30)</span>
-            <span class="kbd">Hold S (2s) / Space</span>
-        </button>
-        <button class="touch-btn btn-restart" onclick="sendAction('restart')">
-            <span>🔄 RESET TIMER</span>
-            <span class="kbd">Hold R (2s) / R</span>
-        </button>
-        <button class="touch-btn btn-abort" onclick="sendAction('abort')">
-            <span>🛑 ABORT MATCH</span>
-            <span class="kbd">Key A / Esc</span>
-        </button>
-        <button class="touch-btn btn-idle" onclick="toggleIdleScreen()">
-            <span id="idleBtnLabel">🌙 IDLE / TEAM-SELECT SCREEN</span>
-            <span class="kbd">Hold E (2s) / I</span>
-        </button>
-        <button class="touch-btn btn-swap" onclick="sendAction('swap_streams')">
-            <span>🔀 SWAP RED/BLUE CAMERAS</span>
-            <span class="kbd">Key W</span>
-        </button>
-    </div>
+		<!-- Mobile Touch Match Controls -->
+		<div class="touch-grid">
+			<button class="touch-btn btn-start" onclick="sendAction('toggle_start_pause')">
+				<span id="startPauseLabel">▶ START MATCH (10s PRE-COUNT + 2:30)</span>
+				<span class="kbd">Hold S (2s) / Space</span>
+			</button>
+			<button class="touch-btn btn-restart" onclick="sendAction('restart')">
+				<span>🔄 RESET TIMER</span>
+				<span class="kbd">Hold R (2s) / R</span>
+			</button>
+			<button class="touch-btn btn-abort" onclick="sendAction('abort')">
+				<span>🛑 ABORT MATCH</span>
+				<span class="kbd">Key A / Esc</span>
+			</button>
+			<button class="touch-btn btn-idle" onclick="toggleIdleScreen()">
+				<span id="idleBtnLabel">🌙 IDLE / TEAM-SELECT SCREEN</span>
+				<span class="kbd">Hold E (2s) / I</span>
+			</button>
+			<button class="touch-btn btn-swap" onclick="sendAction('swap_streams')">
+				<span>🔀 SWAP RED/BLUE CAMERAS</span>
+				<span class="kbd">Key W</span>
+			</button>
+		</div>
 
-    <!-- Team Selection (Supports .txt Upload like TeamSelectPage.jsx + DB Select + Custom Input) -->
-    <div class="card">
-        <h2>👥 Select Teams (Red Team & Blue Team)</h2>
+		<!-- Team Selection (Supports .txt Upload like TeamSelectPage.jsx + DB Select + Custom Input) -->
+		<div class="card">
+			<h2>👥 Select Teams (Red Team & Blue Team)</h2>
 
-        <div style="display:flex;gap:10px;align-items:center;margin-bottom:12px;flex-wrap:wrap;">
-            <button class="btn-sm" style="background:#0066b3;padding:9px 14px;" onclick="document.getElementById('txtFileInput').click()">
-                📄 Teamliste (.txt) hochladen (1 Team pro Zeile)
-            </button>
-            <input id="txtFileInput" type="file" accept=".txt" style="display:none;" onchange="onTxtFileUpload(event)" />
-            <span id="txtUploadStatus" style="font-size:12px;color:#94a3b8;">Aus Datenbank oder .txt wählen</span>
-        </div>
+			<div style="display: flex; gap: 10px; align-items: center; margin-bottom: 12px; flex-wrap: wrap">
+				<button
+					class="btn-sm"
+					style="background: #0066b3; padding: 9px 14px"
+					onclick="document.getElementById('txtFileInput').click()"
+				>
+					📄 Teamliste (.txt) hochladen (1 Team pro Zeile)
+				</button>
+				<input
+					id="txtFileInput"
+					type="file"
+					accept=".txt"
+					style="display: none"
+					onchange="onTxtFileUpload(event)"
+				/>
+				<span id="txtUploadStatus" style="font-size: 12px; color: #94a3b8">Aus Datenbank oder .txt wählen</span>
+			</div>
 
-        <div class="form-row">
-            <div class="team-box-red">
-                <label style="color:#fca5a5;">Red Team (Links)</label>
-                <select id="redTeamSelect" onchange="onSelectTeam('red')"></select>
-                <input id="redTeamInput" type="text" placeholder="Red Team Name" style="margin-top:6px;" />
-            </div>
-            <div class="team-box-blue">
-                <label style="color:#93c5fd;">Blue Team (Rechts)</label>
-                <select id="blueTeamSelect" onchange="onSelectTeam('blue')"></select>
-                <input id="blueTeamInput" type="text" placeholder="Blue Team Name" style="margin-top:6px;" />
-            </div>
-        </div>
+			<div class="form-row">
+				<div class="team-box-red">
+					<label style="color: #fca5a5">Red Team (Links)</label>
+					<select id="redTeamSelect" onchange="onSelectTeam('red')"></select>
+					<input id="redTeamInput" type="text" placeholder="Red Team Name" style="margin-top: 6px" />
+				</div>
+				<div class="team-box-blue">
+					<label style="color: #93c5fd">Blue Team (Rechts)</label>
+					<select id="blueTeamSelect" onchange="onSelectTeam('blue')"></select>
+					<input id="blueTeamInput" type="text" placeholder="Blue Team Name" style="margin-top: 6px" />
+				</div>
+			</div>
 
-        <button class="apply-btn" onclick="applyTeamsToStream()">
-            ✅ Teams übernehmen & zum Match-Stream wechseln
-        </button>
-    </div>
+			<button class="apply-btn" onclick="applyTeamsToStream()">
+				✅ Teams übernehmen & zum Match-Stream wechseln
+			</button>
+		</div>
 
-    <!-- Match Time & Pre-Countdown Settings -->
-    <div class="card">
-        <h2>⏱️ Match Duration & Pre-Count Settings</h2>
-        <div class="form-row">
-            <div>
-                <label>Match Duration (Sekunden, Standard = 150s / 2:30)</label>
-                <input id="durationInput" type="number" min="5" max="1800" value="150" />
-            </div>
-            <div>
-                <label>Pre-Countdown vor Matchstart (Sekunden, Standard = 10s)</label>
-                <div style="display:flex;gap:8px;align-items:center;">
-                    <input id="preCountEnabled" type="checkbox" checked style="width:20px;height:20px;" />
-                    <input id="preCountInput" type="number" min="0" max="60" value="10" />
-                </div>
-            </div>
-        </div>
-        <div class="preset-row">
-            <button class="preset-btn" style="background:#0066b3;" onclick="saveDurationConfig()">Zeit speichern</button>
-            <button class="preset-btn" onclick="quickDuration(150, true, 10)">150s + 10s Pre (FLL Standard)</button>
-            <button class="preset-btn" onclick="quickDuration(150, false, 0)">150s ohne Pre-Count</button>
-            <button class="preset-btn" onclick="sendAction('adjust_time', {delta_sec: 5})">+5s (↑)</button>
-            <button class="preset-btn" onclick="sendAction('adjust_time', {delta_sec: -5})">-5s (↓)</button>
-        </div>
-    </div>
+		<!-- Match Time & Pre-Countdown Settings -->
+		<div class="card">
+			<h2>⏱️ Match Duration & Pre-Count Settings</h2>
+			<div class="form-row">
+				<div>
+					<label>Match Duration (Sekunden, Standard = 150s / 2:30)</label>
+					<input id="durationInput" type="number" min="5" max="1800" value="150" />
+				</div>
+				<div>
+					<label>Pre-Countdown vor Matchstart (Sekunden, Standard = 10s)</label>
+					<div style="display: flex; gap: 8px; align-items: center">
+						<input id="preCountEnabled" type="checkbox" checked style="width: 20px; height: 20px" />
+						<input id="preCountInput" type="number" min="0" max="60" value="10" />
+					</div>
+				</div>
+			</div>
+			<div class="preset-row">
+				<button class="preset-btn" style="background: #0066b3" onclick="saveDurationConfig()">
+					Zeit speichern
+				</button>
+				<button class="preset-btn" onclick="quickDuration(150, true, 10)">150s + 10s Pre (FLL Standard)</button>
+				<button class="preset-btn" onclick="quickDuration(150, false, 0)">150s ohne Pre-Count</button>
+				<button class="preset-btn" onclick="sendAction('adjust_time', { delta_sec: 5 })">+5s (↑)</button>
+				<button class="preset-btn" onclick="sendAction('adjust_time', { delta_sec: -5 })">-5s (↓)</button>
+			</div>
+		</div>
 
-    <!-- Live Camera / Video Source Switcher (Default: Connected USB Camera, or RTSP / MP4 with Frame-Check) -->
-    <div class="card">
-        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px;">
-            <h2 style="margin-bottom:0;">🎥 Video-Quelle (Standard: USB-Kamera / RTSP / MP4)</h2>
-            <button class="btn-sm" style="background:#0066b3;" onclick="scanControlVideoSources()">🔄 Kameras & Quellen scannen</button>
-        </div>
-        <div class="form-row">
-            <div>
-                <label>Erkannte USB-Kameras & lokale Videodateien (.mp4)</label>
-                <select id="ctrlDetectedSources" onchange="onCtrlSourcePick()">
-                    <option value="/dev/video0">📷 Standard USB-Kamera (/dev/video0)</option>
-                </select>
-            </div>
-            <div>
-                <label>Quelle (z.B. <code>/dev/video0</code>, <code>rtsp://...</code> oder <code>.mp4</code> Pfad)</label>
-                <input id="ctrlVideoSourceInput" type="text" value="/dev/video0" placeholder="/dev/video0 oder rtsp://..." />
-            </div>
-        </div>
-        <div class="preset-row">
-            <button class="preset-btn" style="background:#d97706;" onclick="testCtrlVideoSource()">🔍 Bild-Check testen</button>
-            <button class="preset-btn" style="background:#059669;" onclick="saveCtrlVideoSource()">💾 Prüfen & Live umschalten</button>
-        </div>
-        <div id="ctrlProbeBox" style="display:none;margin-top:10px;padding:10px;border-radius:8px;background:#0f172a;border:1px solid #334155;align-items:center;gap:12px;">
-            <img id="ctrlProbeImg" style="width:140px;height:80px;object-fit:cover;border-radius:6px;border:1px solid #f39100;display:none;" />
-            <div>
-                <div id="ctrlProbeStatus" style="font-size:13px;font-weight:700;"></div>
-                <div id="ctrlProbeMeta" style="font-size:11.5px;color:#94a3b8;margin-top:3px;"></div>
-            </div>
-        </div>
-    </div>
+		<!-- Live Camera / Video Source Switcher (Default: Connected USB Camera, or RTSP / MP4 with Frame-Check) -->
+		<div class="card">
+			<div
+				style="
+					display: flex;
+					justify-content: space-between;
+					align-items: center;
+					flex-wrap: wrap;
+					gap: 8px;
+					margin-bottom: 10px;
+				"
+			>
+				<h2 style="margin-bottom: 0">🎥 Video-Quelle (Standard: USB-Kamera / RTSP / MP4)</h2>
+				<button class="btn-sm" style="background: #0066b3" onclick="scanControlVideoSources()">
+					🔄 Kameras & Quellen scannen
+				</button>
+			</div>
+			<div class="form-row">
+				<div>
+					<label>Erkannte USB-Kameras & lokale Videodateien (.mp4)</label>
+					<select id="ctrlDetectedSources" onchange="onCtrlSourcePick()">
+						<option value="/dev/video0">📷 Standard USB-Kamera (/dev/video0)</option>
+					</select>
+				</div>
+				<div>
+					<label
+						>Quelle (z.B. <code>/dev/video0</code>, <code>rtsp://...</code> oder
+						<code>.mp4</code> Pfad)</label
+					>
+					<input
+						id="ctrlVideoSourceInput"
+						type="text"
+						value="/dev/video0"
+						placeholder="/dev/video0 oder rtsp://..."
+					/>
+				</div>
+			</div>
+			<div class="preset-row">
+				<button class="preset-btn" style="background: #d97706" onclick="testCtrlVideoSource()">
+					🔍 Bild-Check testen
+				</button>
+				<button class="preset-btn" style="background: #059669" onclick="saveCtrlVideoSource()">
+					💾 Prüfen & Live umschalten
+				</button>
+			</div>
+			<div
+				id="ctrlProbeBox"
+				style="
+					display: none;
+					margin-top: 10px;
+					padding: 10px;
+					border-radius: 8px;
+					background: #0f172a;
+					border: 1px solid #334155;
+					align-items: center;
+					gap: 12px;
+				"
+			>
+				<img
+					id="ctrlProbeImg"
+					style="
+						width: 140px;
+						height: 80px;
+						object-fit: cover;
+						border-radius: 6px;
+						border: 1px solid #f39100;
+						display: none;
+					"
+				/>
+				<div>
+					<div id="ctrlProbeStatus" style="font-size: 13px; font-weight: 700"></div>
+					<div id="ctrlProbeMeta" style="font-size: 11.5px; color: #94a3b8; margin-top: 3px"></div>
+				</div>
+			</div>
+		</div>
 
-    <!-- Keyboard Shortcuts Reference -->
-    <div class="card">
-        <h2>⌨️ Keyboard Shortcuts (Original + Extended)</h2>
-        <div class="shortcuts-list">
-            <div><code>Hold S (2s)</code> / <code>Space</code> Start Timer</div>
-            <div><code>Hold R (2s)</code> / <code>R</code> Reset Timer</div>
-            <div><code>Hold E (2s)</code> / <code>I</code> Idle / Team Select</div>
-            <div><code>A</code> / <code>Esc</code> Abort Match</div>
-            <div><code>W</code> Swap Red/Blue Streams</div>
-            <div><code>↑</code> / <code>↓</code> Time ±5s</div>
-        </div>
-    </div>
+		<!-- Keyboard Shortcuts Reference -->
+		<div class="card">
+			<h2>⌨️ Keyboard Shortcuts (Original + Extended)</h2>
+			<div class="shortcuts-list">
+				<div><code>Hold S (2s)</code> / <code>Space</code> Start Timer</div>
+				<div><code>Hold R (2s)</code> / <code>R</code> Reset Timer</div>
+				<div><code>Hold E (2s)</code> / <code>I</code> Idle / Team Select</div>
+				<div><code>A</code> / <code>Esc</code> Abort Match</div>
+				<div><code>W</code> Swap Red/Blue Streams</div>
+				<div><code>↑</code> / <code>↓</code> Time ±5s</div>
+			</div>
+		</div>
 
-    <script>
-        let availableTeamNames = [];
-        let latestState = { status: "idle" };
+		<script>
+			let availableTeamNames = [];
+			let latestState = { status: "idle" };
 
-        async function loadInitialTeams() {
-            const res = await fetch("/api/teams");
-            if (!res.ok) return;
-            const dbTeams = await res.json();
-            availableTeamNames = dbTeams.map(t => t.team_name);
-            populateTeamSelects();
-        }
+			async function loadInitialTeams() {
+				const res = await fetch("/api/teams");
+				if (!res.ok) return;
+				const dbTeams = await res.json();
+				availableTeamNames = dbTeams.map((t) => t.team_name);
+				populateTeamSelects();
+			}
 
-        function populateTeamSelects() {
-            const redSel = document.getElementById("redTeamSelect");
-            const blueSel = document.getElementById("blueTeamSelect");
-            const currRed = document.getElementById("redTeamInput").value;
-            const currBlue = document.getElementById("blueTeamInput").value;
+			function populateTeamSelects() {
+				const redSel = document.getElementById("redTeamSelect");
+				const blueSel = document.getElementById("blueTeamSelect");
+				const currRed = document.getElementById("redTeamInput").value;
+				const currBlue = document.getElementById("blueTeamInput").value;
 
-            redSel.innerHTML = '<option value="">-- Red Team wählen --</option>';
-            blueSel.innerHTML = '<option value="">-- Blue Team wählen --</option>';
+				redSel.innerHTML = '<option value="">-- Red Team wählen --</option>';
+				blueSel.innerHTML = '<option value="">-- Blue Team wählen --</option>';
 
-            availableTeamNames.forEach((name) => {
-                const optR = new Option(name, name);
-                if (name === currBlue && currBlue !== "") optR.disabled = true;
-                redSel.add(optR);
+				availableTeamNames.forEach((name) => {
+					const optR = new Option(name, name);
+					if (name === currBlue && currBlue !== "") optR.disabled = true;
+					redSel.add(optR);
 
-                const optB = new Option(name, name);
-                if (name === currRed && currRed !== "") optB.disabled = true;
-                blueSel.add(optB);
-            });
-        }
+					const optB = new Option(name, name);
+					if (name === currRed && currRed !== "") optB.disabled = true;
+					blueSel.add(optB);
+				});
+			}
 
-        function onSelectTeam(color) {
-            const sel = document.getElementById(color + "TeamSelect");
-            if (sel.value) {
-                document.getElementById(color + "TeamInput").value = sel.value;
-            }
-            populateTeamSelects();
-        }
+			function onSelectTeam(color) {
+				const sel = document.getElementById(color + "TeamSelect");
+				if (sel.value) {
+					document.getElementById(color + "TeamInput").value = sel.value;
+				}
+				populateTeamSelects();
+			}
 
-        async function onTxtFileUpload(evt) {
-            const file = evt.target.files[0];
-            if (!file) return;
-            const text = await file.text();
-            const lines = text.split(/\r?\n/).map(s => s.trim()).filter(s => s.length > 0);
-            if (lines.length >= 2) {
-                availableTeamNames = lines;
-                populateTeamSelects();
-                document.getElementById("txtUploadStatus").textContent = `✅ ${lines.length} Teams aus ${file.name} geladen`;
-                await sendAction("upload_team_list", { team_names: lines });
-            } else {
-                alert("Bitte eine .txt Datei mit mindestens zwei Teamnamen (einer pro Zeile) hochladen.");
-            }
-        }
+			async function onTxtFileUpload(evt) {
+				const file = evt.target.files[0];
+				if (!file) return;
+				const text = await file.text();
+				const lines = text
+					.split(/\r?\n/)
+					.map((s) => s.trim())
+					.filter((s) => s.length > 0);
+				if (lines.length >= 2) {
+					availableTeamNames = lines;
+					populateTeamSelects();
+					document.getElementById("txtUploadStatus").textContent =
+						`✅ ${lines.length} Teams aus ${file.name} geladen`;
+					await sendAction("upload_team_list", { team_names: lines });
+				} else {
+					alert("Bitte eine .txt Datei mit mindestens zwei Teamnamen (einer pro Zeile) hochladen.");
+				}
+			}
 
-        async function sendAction(action, payload = {}) {
-            await fetch("/api/volunteer/action", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ action, ...payload }),
-            });
-        }
+			async function sendAction(action, payload = {}) {
+				await fetch("/api/volunteer/action", {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ action, ...payload }),
+				});
+			}
 
-        function applyTeamsToStream() {
-            const redName = document.getElementById("redTeamInput").value.trim() || "Red Team";
-            const blueName = document.getElementById("blueTeamInput").value.trim() || "Blue Team";
-            const duration_sec = parseInt(document.getElementById("durationInput").value) || 150;
-            const pre_count_enabled = document.getElementById("preCountEnabled").checked;
-            const pre_count_duration_sec = parseInt(document.getElementById("preCountInput").value) || 10;
+			function applyTeamsToStream() {
+				const redName = document.getElementById("redTeamInput").value.trim() || "Red Team";
+				const blueName = document.getElementById("blueTeamInput").value.trim() || "Blue Team";
+				const duration_sec = parseInt(document.getElementById("durationInput").value) || 150;
+				const pre_count_enabled = document.getElementById("preCountEnabled").checked;
+				const pre_count_duration_sec = parseInt(document.getElementById("preCountInput").value) || 10;
 
-            sendAction("select_match", {
-                red_team_name: redName,
-                blue_team_name: blueName,
-                duration_sec,
-                pre_count_enabled,
-                pre_count_duration_sec,
-            });
-        }
+				sendAction("select_match", {
+					red_team_name: redName,
+					blue_team_name: blueName,
+					duration_sec,
+					pre_count_enabled,
+					pre_count_duration_sec,
+				});
+			}
 
-        function saveDurationConfig() {
-            const duration_sec = parseInt(document.getElementById("durationInput").value) || 150;
-            const pre_count_enabled = document.getElementById("preCountEnabled").checked;
-            const pre_count_duration_sec = parseInt(document.getElementById("preCountInput").value) || 10;
-            sendAction("set_duration", { duration_sec, pre_count_enabled, pre_count_duration_sec });
-        }
+			function saveDurationConfig() {
+				const duration_sec = parseInt(document.getElementById("durationInput").value) || 150;
+				const pre_count_enabled = document.getElementById("preCountEnabled").checked;
+				const pre_count_duration_sec = parseInt(document.getElementById("preCountInput").value) || 10;
+				sendAction("set_duration", { duration_sec, pre_count_enabled, pre_count_duration_sec });
+			}
 
-        function quickDuration(dur, preEn, preSec) {
-            document.getElementById("durationInput").value = dur;
-            document.getElementById("preCountEnabled").checked = preEn;
-            document.getElementById("preCountInput").value = preSec;
-            sendAction("set_duration", {
-                duration_sec: dur,
-                pre_count_enabled: preEn,
-                pre_count_duration_sec: preSec,
-            });
-        }
+			function quickDuration(dur, preEn, preSec) {
+				document.getElementById("durationInput").value = dur;
+				document.getElementById("preCountEnabled").checked = preEn;
+				document.getElementById("preCountInput").value = preSec;
+				sendAction("set_duration", {
+					duration_sec: dur,
+					pre_count_enabled: preEn,
+					pre_count_duration_sec: preSec,
+				});
+			}
 
-        function toggleIdleScreen() {
-            const nextIdle = latestState.status !== "idle";
-            sendAction("set_idle", { idle: nextIdle });
-        }
+			function toggleIdleScreen() {
+				const nextIdle = latestState.status !== "idle";
+				sendAction("set_idle", { idle: nextIdle });
+			}
 
-        function renderState(st) {
-            if (!st) return;
-            latestState = st;
-            const redName = (st.teamNames && st.teamNames.red) || "Red Team";
-            const blueName = (st.teamNames && st.teamNames.blue) || "Blue Team";
+			function renderState(st) {
+				if (!st) return;
+				latestState = st;
+				const redName = (st.teamNames && st.teamNames.red) || "Red Team";
+				const blueName = (st.teamNames && st.teamNames.blue) || "Blue Team";
 
-            document.getElementById("previewRedName").textContent = redName;
-            document.getElementById("previewBlueName").textContent = blueName;
+				document.getElementById("previewRedName").textContent = redName;
+				document.getElementById("previewBlueName").textContent = blueName;
 
-            if (!document.getElementById("redTeamInput").value) {
-                document.getElementById("redTeamInput").value = redName;
-            }
-            if (!document.getElementById("blueTeamInput").value) {
-                document.getElementById("blueTeamInput").value = blueName;
-            }
+				if (!document.getElementById("redTeamInput").value) {
+					document.getElementById("redTeamInput").value = redName;
+				}
+				if (!document.getElementById("blueTeamInput").value) {
+					document.getElementById("blueTeamInput").value = blueName;
+				}
 
-            const timerEl = document.getElementById("previewTimer");
-            timerEl.textContent = st.formatted_time || "2:30";
-            timerEl.classList.toggle("timer--red", Boolean(st.is_timer_red));
+				const timerEl = document.getElementById("previewTimer");
+				timerEl.textContent = st.formatted_time || "2:30";
+				timerEl.classList.toggle("timer--red", Boolean(st.is_timer_red));
 
-            document.getElementById("previewPhase").textContent =
-                `${(st.status || "idle").toUpperCase()} (${(st.timer_phase || "pre").toUpperCase()})`;
+				document.getElementById("previewPhase").textContent =
+					`${(st.status || "idle").toUpperCase()} (${(st.timer_phase || "pre").toUpperCase()})`;
 
-            const spLabel = document.getElementById("startPauseLabel");
-            if (st.status === "running") {
-                spLabel.textContent = "⏸ PAUSE MATCH TIMER";
-            } else {
-                spLabel.textContent = "▶ START MATCH (10s PRE-COUNT + 2:30)";
-            }
-        }
+				const spLabel = document.getElementById("startPauseLabel");
+				if (st.status === "running") {
+					spLabel.textContent = "⏸ PAUSE MATCH TIMER";
+				} else {
+					spLabel.textContent = "▶ START MATCH (10s PRE-COUNT + 2:30)";
+				}
+			}
 
-        function connectWS() {
-            const proto = location.protocol === "https:" ? "wss:" : "ws:";
-            const ws = new WebSocket(`${proto}//${location.host}/ws/match`);
-            ws.onmessage = (evt) => {
-                try { renderState(JSON.parse(evt.data)); } catch (e) {}
-            };
-            ws.onclose = () => setTimeout(connectWS, 1000);
-        }
+			function connectWS() {
+				const proto = location.protocol === "https:" ? "wss:" : "ws:";
+				const ws = new WebSocket(`${proto}//${location.host}/ws/match`);
+				ws.onmessage = (evt) => {
+					try {
+						renderState(JSON.parse(evt.data));
+					} catch (e) {}
+				};
+				ws.onclose = () => setTimeout(connectWS, 1000);
+			}
 
-        // Support both 2-second KeyHold (S, R, E from original useKeyHold.js) and quick keys
-        const holdTimers = {};
-        window.addEventListener("keydown", (evt) => {
-            const tag = (evt.target && evt.target.tagName) ? evt.target.tagName.toUpperCase() : "";
-            if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
+			// Support both 2-second KeyHold (S, R, E from original useKeyHold.js) and quick keys
+			const holdTimers = {};
+			window.addEventListener("keydown", (evt) => {
+				const tag = evt.target && evt.target.tagName ? evt.target.tagName.toUpperCase() : "";
+				if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
 
-            const k = evt.key.toLowerCase();
-            if (!evt.repeat && (k === "s" || k === "r" || k === "e")) {
-                holdTimers[k] = setTimeout(() => {
-                    if (k === "s") sendAction("start");
-                    if (k === "r") sendAction("restart");
-                    if (k === "e") sendAction("set_idle", { idle: true });
-                }, 2000);
-            }
+				const k = evt.key.toLowerCase();
+				if (!evt.repeat && (k === "s" || k === "r" || k === "e")) {
+					holdTimers[k] = setTimeout(() => {
+						if (k === "s") sendAction("start");
+						if (k === "r") sendAction("restart");
+						if (k === "e") sendAction("set_idle", { idle: true });
+					}, 2000);
+				}
 
-            if (evt.code === "Space") {
-                evt.preventDefault();
-                sendAction("toggle_start_pause");
-            } else if (k === "r") {
-                sendAction("restart");
-            } else if (k === "a" || evt.key === "Escape") {
-                sendAction("abort");
-            } else if (k === "i") {
-                toggleIdleScreen();
-            } else if (k === "w") {
-                sendAction("swap_streams");
-            } else if (evt.key === "ArrowUp" || evt.key === "+") {
-                sendAction("adjust_time", { delta_sec: 5 });
-            } else if (evt.key === "ArrowDown" || evt.key === "-") {
-                sendAction("adjust_time", { delta_sec: -5 });
-            }
-        });
+				if (evt.code === "Space") {
+					evt.preventDefault();
+					sendAction("toggle_start_pause");
+				} else if (k === "r") {
+					sendAction("restart");
+				} else if (k === "a" || evt.key === "Escape") {
+					sendAction("abort");
+				} else if (k === "i") {
+					toggleIdleScreen();
+				} else if (k === "w") {
+					sendAction("swap_streams");
+				} else if (evt.key === "ArrowUp" || evt.key === "+") {
+					sendAction("adjust_time", { delta_sec: 5 });
+				} else if (evt.key === "ArrowDown" || evt.key === "-") {
+					sendAction("adjust_time", { delta_sec: -5 });
+				}
+			});
 
-        window.addEventListener("keyup", (evt) => {
-            const k = evt.key.toLowerCase();
-            if (holdTimers[k]) {
-                clearTimeout(holdTimers[k]);
-                delete holdTimers[k];
-            }
-        });
+			window.addEventListener("keyup", (evt) => {
+				const k = evt.key.toLowerCase();
+				if (holdTimers[k]) {
+					clearTimeout(holdTimers[k]);
+					delete holdTimers[k];
+				}
+			});
 
-        async function scanControlVideoSources() {
-            const sel = document.getElementById("ctrlDetectedSources");
-            try {
-                const res = await fetch("/api/control/video_sources");
-                if (!res.ok) return;
-                const data = await res.json();
-                const currentSrc = data.current_source || "/dev/video0";
-                const inp = document.getElementById("ctrlVideoSourceInput");
-                if (currentSrc) inp.value = currentSrc;
+			async function scanControlVideoSources() {
+				const sel = document.getElementById("ctrlDetectedSources");
+				try {
+					const res = await fetch("/api/control/video_sources");
+					if (!res.ok) return;
+					const data = await res.json();
+					const currentSrc = data.current_source || "/dev/video0";
+					const inp = document.getElementById("ctrlVideoSourceInput");
+					if (currentSrc) inp.value = currentSrc;
 
-                sel.innerHTML = '<option value="/dev/video0">📷 Standard USB-Kamera (/dev/video0)</option>';
-                (data.available_sources || []).forEach(item => {
-                    if (item.source === "/dev/video0") return;
-                    const opt = new Option(item.label, item.source);
-                    if (item.source === currentSrc) opt.selected = true;
-                    sel.add(opt);
-                });
-            } catch (e) {}
-        }
+					sel.innerHTML = '<option value="/dev/video0">📷 Standard USB-Kamera (/dev/video0)</option>';
+					(data.available_sources || []).forEach((item) => {
+						if (item.source === "/dev/video0") return;
+						const opt = new Option(item.label, item.source);
+						if (item.source === currentSrc) opt.selected = true;
+						sel.add(opt);
+					});
+				} catch (e) {}
+			}
 
-        function onCtrlSourcePick() {
-            const sel = document.getElementById("ctrlDetectedSources");
-            if (sel.value) {
-                document.getElementById("ctrlVideoSourceInput").value = sel.value;
-                testCtrlVideoSource();
-            }
-        }
+			function onCtrlSourcePick() {
+				const sel = document.getElementById("ctrlDetectedSources");
+				if (sel.value) {
+					document.getElementById("ctrlVideoSourceInput").value = sel.value;
+					testCtrlVideoSource();
+				}
+			}
 
-        async function testCtrlVideoSource() {
-            const src = document.getElementById("ctrlVideoSourceInput").value.trim();
-            const box = document.getElementById("ctrlProbeBox");
-            const st = document.getElementById("ctrlProbeStatus");
-            const meta = document.getElementById("ctrlProbeMeta");
-            const img = document.getElementById("ctrlProbeImg");
+			async function testCtrlVideoSource() {
+				const src = document.getElementById("ctrlVideoSourceInput").value.trim();
+				const box = document.getElementById("ctrlProbeBox");
+				const st = document.getElementById("ctrlProbeStatus");
+				const meta = document.getElementById("ctrlProbeMeta");
+				const img = document.getElementById("ctrlProbeImg");
 
-            box.style.display = "flex";
-            img.style.display = "none";
-            st.style.color = "#f59e0b";
-            st.textContent = '⏳ Prüfe "' + src + '" auf gültiges Bildsignal...';
-            meta.textContent = "Verbinde (Timeout: 4.5s)...";
+				box.style.display = "flex";
+				img.style.display = "none";
+				st.style.color = "#f59e0b";
+				st.textContent = '⏳ Prüfe "' + src + '" auf gültiges Bildsignal...';
+				meta.textContent = "Verbinde (Timeout: 4.5s)...";
 
-            try {
-                const res = await fetch("/api/control/video_source/test", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ source: src }),
-                });
-                const data = await res.json();
-                if (res.ok && data.ok) {
-                    st.style.color = "#34d399";
-                    st.textContent = "✅ Bild-Check erfolgreich!";
-                    meta.textContent = `${data.meta.source} (${data.meta.width}×${data.meta.height} @ ${data.meta.fps} FPS)`;
-                    if (data.preview_data_url) {
-                        img.src = data.preview_data_url;
-                        img.style.display = "block";
-                    }
-                } else {
-                    st.style.color = "#f87171";
-                    st.textContent = "❌ " + (data.error || "Kein Bildsignal.");
-                    meta.textContent = "Bitte USB-Kamera, RTSP-Link oder MP4-Pfad prüfen.";
-                }
-            } catch (e) {
-                st.style.color = "#f87171";
-                st.textContent = "❌ Verbindungsfehler beim Bild-Check.";
-            }
-        }
+				try {
+					const res = await fetch("/api/control/video_source/test", {
+						method: "POST",
+						headers: { "Content-Type": "application/json" },
+						body: JSON.stringify({ source: src }),
+					});
+					const data = await res.json();
+					if (res.ok && data.ok) {
+						st.style.color = "#34d399";
+						st.textContent = "✅ Bild-Check erfolgreich!";
+						meta.textContent = `${data.meta.source} (${data.meta.width}×${data.meta.height} @ ${data.meta.fps} FPS)`;
+						if (data.preview_data_url) {
+							img.src = data.preview_data_url;
+							img.style.display = "block";
+						}
+					} else {
+						st.style.color = "#f87171";
+						st.textContent = "❌ " + (data.error || "Kein Bildsignal.");
+						meta.textContent = "Bitte USB-Kamera, RTSP-Link oder MP4-Pfad prüfen.";
+					}
+				} catch (e) {
+					st.style.color = "#f87171";
+					st.textContent = "❌ Verbindungsfehler beim Bild-Check.";
+				}
+			}
 
-        async function saveCtrlVideoSource() {
-            const src = document.getElementById("ctrlVideoSourceInput").value.trim();
-            const box = document.getElementById("ctrlProbeBox");
-            const st = document.getElementById("ctrlProbeStatus");
-            const meta = document.getElementById("ctrlProbeMeta");
-            const img = document.getElementById("ctrlProbeImg");
+			async function saveCtrlVideoSource() {
+				const src = document.getElementById("ctrlVideoSourceInput").value.trim();
+				const box = document.getElementById("ctrlProbeBox");
+				const st = document.getElementById("ctrlProbeStatus");
+				const meta = document.getElementById("ctrlProbeMeta");
+				const img = document.getElementById("ctrlProbeImg");
 
-            box.style.display = "flex";
-            st.style.color = "#f59e0b";
-            st.textContent = "⏳ Prüfe Live-Bild vor dem Speichern & Umschalten...";
+				box.style.display = "flex";
+				st.style.color = "#f59e0b";
+				st.textContent = "⏳ Prüfe Live-Bild vor dem Speichern & Umschalten...";
 
-            const res = await fetch("/api/control/video_source/save", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ source: src }),
-            });
-            const data = await res.json();
-            if (res.ok && data.ok) {
-                st.style.color = "#34d399";
-                st.textContent = "✅ Quelle geprüft, gespeichert & live aktiviert!";
-                meta.textContent = `Aktiv: ${data.meta.source} (${data.meta.width}×${data.meta.height} @ ${data.meta.fps} FPS)`;
-                if (data.preview_data_url) {
-                    img.src = data.preview_data_url;
-                    img.style.display = "block";
-                }
-            } else {
-                st.style.color = "#f87171";
-                st.textContent = "❌ " + (data.error || "Speichern abgelehnt (Kein Bildsignal).");
-            }
-        }
+				const res = await fetch("/api/control/video_source/save", {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ source: src }),
+				});
+				const data = await res.json();
+				if (res.ok && data.ok) {
+					st.style.color = "#34d399";
+					st.textContent = "✅ Quelle geprüft, gespeichert & live aktiviert!";
+					meta.textContent = `Aktiv: ${data.meta.source} (${data.meta.width}×${data.meta.height} @ ${data.meta.fps} FPS)`;
+					if (data.preview_data_url) {
+						img.src = data.preview_data_url;
+						img.style.display = "block";
+					}
+				} else {
+					st.style.color = "#f87171";
+					st.textContent = "❌ " + (data.error || "Speichern abgelehnt (Kein Bildsignal).");
+				}
+			}
 
-        loadInitialTeams();
-        scanControlVideoSources();
-        connectWS();
-    </script>
-</body>
+			loadInitialTeams();
+			scanControlVideoSources();
+			connectWS();
+		</script>
+	</body>
 </html>

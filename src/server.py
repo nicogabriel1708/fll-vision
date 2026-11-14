@@ -10,23 +10,24 @@ Provides:
 """
 import asyncio
 import base64
-from concurrent.futures import ThreadPoolExecutor
 import csv
 import io
 import json
 import logging
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Dict, List, Optional, Set
+from typing import Dict, Optional
+
 import cv2
 import numpy as np
 
 try:
-    from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, HTTPException, Form
-    from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse, Response, RedirectResponse
-    from fastapi.staticfiles import StaticFiles
     import uvicorn
+    from fastapi import FastAPI, Form, HTTPException, Request, WebSocket, WebSocketDisconnect
+    from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
+    from fastapi.staticfiles import StaticFiles
 except ImportError:
     FastAPI = None
     uvicorn = None
@@ -37,7 +38,6 @@ from src.homography import TableHomography
 from src.match_state import MatchStateManager
 from src.stream_compositor import DualStreamCompositor
 from src.video_discovery import discover_available_video_sources, probe_video_source
-
 
 logger = logging.getLogger("fll-vision.server")
 SESSION_COOKIE_NAME = "fll_session_token"

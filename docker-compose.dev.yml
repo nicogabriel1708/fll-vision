@@ -4,45 +4,45 @@
 #   docker compose -f docker-compose.dev.yml up --build
 # ==============================================================================
 services:
-  fll-vision-dev:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: fll-vision:dgx-spark-dev
-    container_name: fll-vision-dev
-    ipc: host
-    ulimits:
-      memlock: -1
-      stack: 67108864
-    device_cgroup_rules:
-      - "c 81:* rmw"
-    ports:
-      - "${FLL_PORT:-8080}:8080"
-    environment:
-      - FLL_ENV=development
-      - LOG_LEVEL=DEBUG
-      - NVIDIA_VISIBLE_DEVICES=all
-      - NVIDIA_DRIVER_CAPABILITIES=compute,utility,video
-      - CONFIG_PATH=/workspace/config/config.yaml
-      - FLL_ADMIN_USER=${FLL_ADMIN_USER:-admin}
-      - FLL_ADMIN_PASSWORD=${FLL_ADMIN_PASSWORD:-}
-      - FLL_VOLUNTEERS_USER=${FLL_VOLUNTEERS_USER:-volunteers}
-      - FLL_VOLUNTEERS_PASSWORD=${FLL_VOLUNTEERS_PASSWORD:-}
-      - FLL_ENGINEERS_USER=${FLL_ENGINEERS_USER:-engineers}
-      - FLL_ENGINEERS_PASSWORD=${FLL_ENGINEERS_PASSWORD:-}
-    volumes:
-      - ./src:/workspace/src
-      - ./frontend:/workspace/frontend
-      - ./scripts:/workspace/scripts
-      - ./config:/workspace/config
-      - ./models:/workspace/models
-      - ./data:/workspace/data
-      - /dev:/dev
-      - /sys/class/video4linux:/sys/class/video4linux:ro
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu, compute, utility, video]
+    fll-vision-dev:
+        build:
+            context: .
+            dockerfile: Dockerfile
+        image: fll-vision:dgx-spark-dev
+        container_name: fll-vision-dev
+        ipc: host
+        ulimits:
+            memlock: -1
+            stack: 67108864
+        device_cgroup_rules:
+            - "c 81:* rmw"
+        ports:
+            - "${FLL_PORT:-8080}:8080"
+        environment:
+            - FLL_ENV=development
+            - LOG_LEVEL=DEBUG
+            - NVIDIA_VISIBLE_DEVICES=all
+            - NVIDIA_DRIVER_CAPABILITIES=compute,utility,video
+            - CONFIG_PATH=/workspace/config/config.yaml
+            - FLL_ADMIN_USER=${FLL_ADMIN_USER:-admin}
+            - FLL_ADMIN_PASSWORD=${FLL_ADMIN_PASSWORD:-}
+            - FLL_VOLUNTEERS_USER=${FLL_VOLUNTEERS_USER:-volunteers}
+            - FLL_VOLUNTEERS_PASSWORD=${FLL_VOLUNTEERS_PASSWORD:-}
+            - FLL_ENGINEERS_USER=${FLL_ENGINEERS_USER:-engineers}
+            - FLL_ENGINEERS_PASSWORD=${FLL_ENGINEERS_PASSWORD:-}
+        volumes:
+            - ./src:/workspace/src
+            - ./frontend:/workspace/frontend
+            - ./scripts:/workspace/scripts
+            - ./config:/workspace/config
+            - ./models:/workspace/models
+            - ./data:/workspace/data
+            - /dev:/dev
+            - /sys/class/video4linux:/sys/class/video4linux:ro
+        deploy:
+            resources:
+                reservations:
+                    devices:
+                        - driver: nvidia
+                          count: all
+                          capabilities: [gpu, compute, utility, video]

@@ -14,10 +14,18 @@ echo "  5. Train YOLO11s on DGX Spark GPU"
 echo "  6. Compile FP16 TensorRT Engine (.engine)"
 echo "=================================================================="
 
-docker compose run --rm --service-ports fll-vision \
+# Startet den Trainingslauf im Container OHNE Port-Konflikt auf 8080
+docker compose run --rm --no-deps fll-vision \
   python3 scripts/auto_pipeline.py \
   --config /workspace/config/config.yaml \
   --videos-dir /workspace/data/training_videos \
   --target-frames 600 \
   --epochs 80 \
   --batch 32
+
+# Falls der Hauptcontainer bereits im Hintergrund läuft, kurz neu starten,
+# damit er die neue models/fll_yolo11s.engine direkt lädt:
+if docker ps --format '{{.Names}}' | grep -q '^fll-vision$'; then
+    echo "[OK] Starte laufenden fll-vision Container neu, um das neue Modell zu aktivieren..."
+    docker compose restart fll-vision
+fi
