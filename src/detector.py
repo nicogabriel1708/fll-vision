@@ -60,7 +60,7 @@ class FLLDetector:
 						exported = self.model.export(
 							format="engine",
 							imgsz=cfg.imgsz,
-							quantize=cfg.half_precision,
+							quantize="fp16" if cfg.half_precision else "fp32",
 							device=cfg.device,
 							simplify=True,
 							workspace=4,
@@ -93,7 +93,7 @@ class FLLDetector:
 				iou=self.cfg.iou_threshold,
 				max_det=self.cfg.max_det,
 				device=self.cfg.device,
-				quantize=self.cfg.half_precision,
+				quantize="fp16" if self.cfg.half_precision else "fp32",
 				verbose=False,
 			)
 

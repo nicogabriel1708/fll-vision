@@ -279,7 +279,7 @@ def step3_train_and_export_trt(
 	exported = trained_model.export(
 		format="engine",
 		imgsz=imgsz,
-		quantize=True,
+		quantize="fp16",
 		simplify=True,
 		workspace=4,
 		device="cuda:0",

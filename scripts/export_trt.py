@@ -26,7 +26,7 @@ def main():
 	exported_path = model.export(
 		format="engine",
 		imgsz=args.imgsz,
-		quantize=args.half,
+		quantize="fp16" if args.half else "fp32",
 		simplify=True,
 		workspace=args.workspace,
 		device="cuda:0",
