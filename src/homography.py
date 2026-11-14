@@ -96,8 +96,9 @@ def detect_two_independent_tables(
 	Detects the 4 corners of Table 1 (Left) and Table 2 (Right) independently from a single
 	central camera frame (#1, #12):
 	  - Does NOT assume the camera is centered at 50% width (`0.48*w` / `0.52*w` cutoff removed) (#12).
-	  - Collects all valid convex table quadrilaterals and selects the highest-scoring non-overlapping pair,
-	    sorting the two tables by their horizontal centroid (left = Table 1, right = Table 2).
+	  - Evaluates aspect ratio, interior mission-mat edge richness, and physical twin-table symmetry
+	    (similar area, similar width/height, and vertical Y-alignment) so random floor/wall rectangles
+	    are rejected.
 	  - Returns `detected = True` ONLY when BOTH Table 1 and Table 2 were genuinely detected (#1).
 	"""
 	if frame is None or frame.size == 0:
@@ -143,8 +144,24 @@ def detect_two_independent_tables(
 						pts = validate_quad_geometry(approx.reshape(4, 2), frame_size=(w, h))
 					except ValueError:
 						break
-					score = area / img_area
-					# Avoid duplicate candidates with almost identical corners
+					top_w = float(np.linalg.norm(pts[1] - pts[0]))
+					bot_w = float(np.linalg.norm(pts[2] - pts[3]))
+					left_h = float(np.linalg.norm(pts[3] - pts[0]))
+					right_h = float(np.linalg.norm(pts[2] - pts[1]))
+					avg_w = 0.5 * (top_w + bot_w)
+					avg_h = max(1.0, 0.5 * (left_h + right_h))
+					aspect = avg_w / avg_h
+					# Reject extreme elongated or narrow shapes that cannot be an FLL table
+					if aspect < 0.65 or aspect > 3.2:
+						break
+
+					# Compute interior edge/texture richness bonus (FLL mission mats have high internal detail)
+					q_mask = np.zeros((h, w), dtype=np.uint8)
+					cv2.fillPoly(q_mask, [pts.astype(np.int32)], 255)
+					edge_density = float(cv2.countNonZero(cv2.bitwise_and(edges, edges, mask=q_mask))) / max(1.0, area)
+					texture_bonus = min(0.08, edge_density * 0.5)
+
+					score = (area / img_area) + texture_bonus
 					if all(
 						float(np.mean(np.linalg.norm(pts - existing_pts, axis=1))) > 25.0
 						for _, existing_pts in candidate_quads
@@ -154,23 +171,44 @@ def detect_two_independent_tables(
 
 	candidate_quads.sort(key=lambda item: item[0], reverse=True)
 
-	# Find the highest-scoring non-overlapping pair of tables anywhere in the image (#1, #12)
+	# Find the highest-scoring non-overlapping pair of FLL tables that also satisfy
+	# physical twin-table symmetry (similar area, similar height/width, and vertical Y-alignment)!
 	best_pair: Optional[Tuple[np.ndarray, np.ndarray]] = None
 	best_pair_score = -1.0
 
 	for i in range(len(candidate_quads)):
 		s1, q1 = candidate_quads[i]
+		area1 = float(cv2.contourArea(q1.reshape((4, 1, 2))))
+		w1 = 0.5 * float(np.linalg.norm(q1[1] - q1[0]) + np.linalg.norm(q1[2] - q1[3]))
+		h1 = 0.5 * float(np.linalg.norm(q1[3] - q1[0]) + np.linalg.norm(q1[2] - q1[1]))
+		cx1, cy1 = float(np.mean(q1[:, 0])), float(np.mean(q1[:, 1]))
+
 		for j in range(i + 1, len(candidate_quads)):
 			s2, q2 = candidate_quads[j]
 			inter_area, _ = cv2.intersectConvexConvex(q1, q2)
 			if float(inter_area) > 1.0:
 				continue
-			cx1 = float(np.mean(q1[:, 0]))
-			cx2 = float(np.mean(q2[:, 0]))
-			# Require horizontal separation between the two side-by-side tables
+			area2 = float(cv2.contourArea(q2.reshape((4, 1, 2))))
+			w2 = 0.5 * float(np.linalg.norm(q2[1] - q2[0]) + np.linalg.norm(q2[2] - q2[3]))
+			h2 = 0.5 * float(np.linalg.norm(q2[3] - q2[0]) + np.linalg.norm(q2[2] - q2[1]))
+			cx2, cy2 = float(np.mean(q2[:, 0])), float(np.mean(q2[:, 1]))
+
+			# 1. Require horizontal side-by-side separation
 			if abs(cx1 - cx2) < 0.15 * w:
 				continue
-			pair_score = s1 + s2
+			# 2. Both FLL tables have identical physical dimensions: require similar projected area & height
+			area_ratio = min(area1, area2) / max(1.0, max(area1, area2))
+			height_ratio = min(h1, h2) / max(1.0, max(h1, h2))
+			width_ratio = min(w1, w2) / max(1.0, max(w1, w2))
+			if area_ratio < 0.50 or height_ratio < 0.65 or width_ratio < 0.60:
+				continue
+			# 3. Side-by-side tables share a similar vertical Y position in the overhead camera view
+			if abs(cy1 - cy2) > 0.20 * h:
+				continue
+
+			symmetry_bonus = 0.25 * (area_ratio + height_ratio + width_ratio)
+			y_align_penalty = (abs(cy1 - cy2) / float(h)) * 0.30
+			pair_score = s1 + s2 + symmetry_bonus - y_align_penalty
 			if pair_score > best_pair_score:
 				best_pair_score = pair_score
 				best_pair = (q1, q2) if cx1 < cx2 else (q2, q1)
@@ -192,7 +230,15 @@ class TableHomography:
 	2D Bird's-Eye View warping.
 	"""
 
-	def __init__(self, cfg: TableConfig, minimap_base_height: int = 540, frame_size: Tuple[int, int] = (1920, 1080)):
+	def __init__(
+		self,
+		cfg: TableConfig,
+		minimap_base_height: int = 540,
+		frame_size: Tuple[int, int] = (1920, 1080),
+		minimap_scale: Optional[float] = None,
+	):
+		if minimap_scale is not None:
+			minimap_base_height = max(240, int(round(cfg.real_height_mm * float(minimap_scale))))
 		self.cfg = cfg
 		self.real_w = cfg.real_width_mm
 		self.real_h = cfg.real_height_mm
@@ -455,11 +501,14 @@ class TableHomography:
 			if self._cached_mask is None or self._cached_shape != (h, w):
 				mask = np.zeros((h, w), dtype=np.uint8)
 				pts = self._active_quad_px.astype(np.float32)
-				center = np.mean(pts, axis=0)
-				vecs = pts - center
-				norms = np.linalg.norm(vecs, axis=1, keepdims=True) + 1e-6
-				padded_pts = (pts + (vecs / norms) * self.cfg.roi_padding_px).astype(np.int32)
-				cv2.fillPoly(mask, [padded_pts], 255)
+				if self.cfg.roi_padding_px != 0:
+					center = np.mean(pts, axis=0)
+					vecs = pts - center
+					norms = np.linalg.norm(vecs, axis=1, keepdims=True) + 1e-6
+					poly_pts = np.round(pts + (vecs / norms) * float(self.cfg.roi_padding_px)).astype(np.int32)
+				else:
+					poly_pts = np.round(pts).astype(np.int32)
+				cv2.fillPoly(mask, [poly_pts], 255)
 				self._cached_mask = mask
 				self._cached_shape = (h, w)
 			mask_ref = self._cached_mask

@@ -90,6 +90,7 @@ class FLLDetector:
 		self.model_class_names: Dict[int, str] = {}
 
 		self.consecutive_errors: int = 0
+		self._table_consecutive_errors: Dict[int, int] = {1: 0, 2: 0}
 		self.total_errors: int = 0
 		self.last_error: Optional[str] = None
 
@@ -106,7 +107,7 @@ class FLLDetector:
 
 	def is_ready(self) -> bool:
 		"""Returns True if the underlying YOLO/TensorRT model is loaded and operational (#17)."""
-		return self.model is not None and self.consecutive_errors < 5
+		return self.model is not None and self.consecutive_errors < 3
 
 	def _resolve_pt_weights_path(self) -> Optional[Path]:
 		pt_path = Path(self.cfg.weights_pt)
@@ -363,7 +364,7 @@ class FLLDetector:
 				return "hand"
 			return None
 
-	def _run_ai_inference(self, frame: np.ndarray, max_det: Optional[int] = None) -> List[Detection]:
+	def _run_ai_inference(self, frame: np.ndarray, max_det: Optional[int] = None, table_id: int = 1) -> List[Detection]:
 		if self.model is None or frame is None or frame.size == 0:
 			return []
 
@@ -380,7 +381,9 @@ class FLLDetector:
 				device=self.cfg.device,
 				verbose=False,
 			)
-			self.consecutive_errors = 0
+			# Reset only this table's error counter so a healthy Table 2 never masks errors on Table 1!
+			self._table_consecutive_errors[table_id] = 0
+			self.consecutive_errors = max(self._table_consecutive_errors.values(), default=0)
 
 			detections: List[Detection] = []
 			if not results or results[0].boxes is None:
@@ -406,17 +409,24 @@ class FLLDetector:
 				)
 			return detections
 		except Exception as exc:
-			self.consecutive_errors += 1
+			self._table_consecutive_errors[table_id] = self._table_consecutive_errors.get(table_id, 0) + 1
+			self.consecutive_errors = max(self._table_consecutive_errors.values(), default=1)
 			self.total_errors += 1
-			self.last_error = str(exc)
-			logger.error(f"AI inference error (#{self.consecutive_errors}, model={self.active_model_path}): {exc}")
+			self.last_error = f"[Table {table_id}] {exc}"
+			logger.error(
+				f"AI inference error on Table {table_id} "
+				f"(table_consec={self._table_consecutive_errors[table_id]}, max_consec={self.consecutive_errors}, "
+				f"model={self.active_model_path}): {exc}"
+			)
 			if self.using_trt_engine and self.consecutive_errors >= 2:
 				pt_path = self._resolve_pt_weights_path()
 				if pt_path is not None and pt_path.exists():
 					logger.warning(
 						f"TensorRT engine failed repeatedly; hot-switching runtime detector to PyTorch weights {pt_path}!"
 					)
-					self._try_load_and_warmup(str(pt_path), is_engine=False)
+					if self._try_load_and_warmup(str(pt_path), is_engine=False):
+						self._table_consecutive_errors = {1: 0, 2: 0}
+						self.consecutive_errors = 0
 			return []
 
 	def fuse_ai_and_motion(
@@ -478,7 +488,7 @@ class FLLDetector:
 		if frame is None or frame.size == 0:
 			return []
 
-		ai_dets = self._run_ai_inference(frame, max_det=self.cfg.max_det)
+		ai_dets = self._run_ai_inference(frame, max_det=self.cfg.max_det, table_id=table_id)
 		motion_boxes = self._extract_motion_boxes(frame, table_id=table_id, homography=homography)
 		if not motion_boxes and not self.cfg.use_motion_discovery:
 			return [d for d in ai_dets if d.confidence >= self.cfg.conf_threshold]

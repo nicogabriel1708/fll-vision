@@ -155,7 +155,7 @@ class TableConfig:
 		default_factory=lambda: [[1010.0, 140.0], [1860.0, 140.0], [1900.0, 960.0], [1010.0, 960.0]]
 	)
 	apply_table_roi_mask: bool = True
-	roi_padding_px: int = 4
+	roi_padding_px: int = 0
 	active_half_mode: str = "full"
 	active_x_ratio: List[float] = field(default_factory=lambda: [0.0, 1.00])
 	active_y_ratio: List[float] = field(default_factory=lambda: [0.0, 1.00])
