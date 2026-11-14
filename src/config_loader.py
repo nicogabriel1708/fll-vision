@@ -23,7 +23,6 @@ def _parse_yaml_fallback(text: str) -> dict:
 	lines = text.splitlines()
 
 	for idx, raw_line in enumerate(lines):
-		# Strip comments outside quotes
 		line = raw_line
 		if "#" in line:
 			in_q = False
@@ -55,7 +54,6 @@ def _parse_yaml_fallback(text: str) -> dict:
 			key = key.strip()
 			rest = rest.strip()
 			if rest == "":
-				# Look ahead to see if next non-empty line is a list item
 				next_is_list = False
 				for nxt in lines[idx + 1 :]:
 					s_nxt = nxt.split("#", 1)[0].strip()
@@ -99,7 +97,6 @@ class ProjectConfig:
 @dataclass
 class VideoConfig:
 	source: Union[str, int] = "/dev/video0"
-	source_table2: Union[str, int] = ""
 	training_videos_dir: str = "/workspace/data/training_videos"
 	width: int = 1920
 	height: int = 1080
@@ -115,17 +112,14 @@ class TableConfig:
 	real_width_mm: float = 2362.0
 	real_height_mm: float = 1143.0
 	auto_detect_borders: bool = False
-	double_table_corners_px: List[List[float]] = field(
-		default_factory=lambda: [[60.0, 140.0], [1860.0, 140.0], [1900.0, 960.0], [20.0, 960.0]]
-	)
 	src_corners_px: List[List[float]] = field(
-		default_factory=lambda: [[60.0, 140.0], [960.0, 140.0], [960.0, 960.0], [20.0, 960.0]]
+		default_factory=lambda: [[60.0, 140.0], [910.0, 140.0], [910.0, 960.0], [20.0, 960.0]]
 	)
 	table2_corners_px: List[List[float]] = field(
-		default_factory=lambda: [[960.0, 140.0], [1860.0, 140.0], [1900.0, 960.0], [960.0, 960.0]]
+		default_factory=lambda: [[1010.0, 140.0], [1860.0, 140.0], [1900.0, 960.0], [1010.0, 960.0]]
 	)
 	apply_table_roi_mask: bool = True
-	roi_padding_px: int = 15
+	roi_padding_px: int = 4
 	active_half_mode: str = "full"
 	active_x_ratio: List[float] = field(default_factory=lambda: [0.0, 1.00])
 	active_y_ratio: List[float] = field(default_factory=lambda: [0.0, 1.00])
@@ -140,12 +134,11 @@ class TableConfig:
 	)
 
 	def make_table2_config(self) -> "TableConfig":
-		"""Creates a dedicated TableConfig instance for Single Table 2 (Right / Blue Team)."""
+		"""Creates an independent TableConfig instance for Table 2 (Right / Blue Team)."""
 		return TableConfig(
 			real_width_mm=self.real_width_mm,
 			real_height_mm=self.real_height_mm,
 			auto_detect_borders=False,
-			double_table_corners_px=[list(p) for p in self.double_table_corners_px],
 			src_corners_px=[list(p) for p in self.table2_corners_px],
 			table2_corners_px=[list(p) for p in self.table2_corners_px],
 			apply_table_roi_mask=self.apply_table_roi_mask,
@@ -306,7 +299,6 @@ def load_config(path: str) -> AppConfig:
 
 def save_config_updates_to_yaml(
 	path: str,
-	double_table_corners_px: Optional[List[List[float]]] = None,
 	corners_px: Optional[List[List[float]]] = None,
 	table2_corners_px: Optional[List[List[float]]] = None,
 	auto_detect: Optional[bool] = None,
@@ -321,9 +313,12 @@ def save_config_updates_to_yaml(
 	auto_zoom_enabled: Optional[bool] = None,
 	border_fill_mode: Optional[str] = None,
 	video_source: Union[str, int, None] = None,
-	video_source_table2: Union[str, int, None] = None,
+	proximity_radius_mm: Optional[float] = None,
+	max_robot_speed_mm_s: Optional[float] = None,
+	stationary_noise_gate_mm: Optional[float] = None,
+	conf_threshold: Optional[float] = None,
 ):
-	"""Persists updated double-table, single-tables (1 & 2), active zones, zoom, and video source to config.yaml."""
+	"""Persists independent Table 1 & Table 2 corners, active zones, zoom, tracker & video source to config.yaml."""
 	config_path = Path(path)
 	if not config_path.exists() or yaml is None:
 		return
@@ -334,15 +329,13 @@ def save_config_updates_to_yaml(
 	raw.setdefault("table", {})
 	raw.setdefault("streams", {}).setdefault("auto_zoom", {})
 
+	# Remove obsolete legacy keys if present
+	raw["video"].pop("source_table2", None)
+	raw["table"].pop("double_table_corners_px", None)
+
 	if video_source is not None:
 		raw["video"]["source"] = str(video_source).strip()
-	if video_source_table2 is not None:
-		raw["video"]["source_table2"] = str(video_source_table2).strip()
 
-	if double_table_corners_px is not None:
-		raw["table"]["double_table_corners_px"] = [
-			[round(float(x), 1), round(float(y), 1)] for x, y in double_table_corners_px
-		]
 	if corners_px is not None:
 		raw["table"]["src_corners_px"] = [[round(float(x), 1), round(float(y), 1)] for x, y in corners_px]
 	if table2_corners_px is not None:
@@ -377,6 +370,17 @@ def save_config_updates_to_yaml(
 		raw["streams"]["auto_zoom"]["enabled"] = bool(auto_zoom_enabled)
 	if border_fill_mode is not None:
 		raw["streams"]["auto_zoom"]["border_fill_mode"] = str(border_fill_mode)
+
+	raw.setdefault("tracker", {}).setdefault("hand_veto", {})
+	raw.setdefault("inference", {})
+	if proximity_radius_mm is not None:
+		raw["tracker"]["hand_veto"]["proximity_radius_mm"] = round(float(proximity_radius_mm), 1)
+	if max_robot_speed_mm_s is not None:
+		raw["tracker"]["max_robot_speed_mm_s"] = round(float(max_robot_speed_mm_s), 1)
+	if stationary_noise_gate_mm is not None:
+		raw["tracker"]["stationary_noise_gate_mm"] = round(float(stationary_noise_gate_mm), 2)
+	if conf_threshold is not None:
+		raw["inference"]["conf_threshold"] = round(float(conf_threshold), 3)
 
 	with open(config_path, "w", encoding="utf-8") as f:
 		yaml.safe_dump(raw, f, sort_keys=False, default_flow_style=False)

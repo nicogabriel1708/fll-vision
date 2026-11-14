@@ -342,7 +342,8 @@ class FLLRobotTracker:
 	) -> Optional[TrajectoryPoint]:
 		now = float(timestamp) if timestamp is not None else time.time()
 
-		if self._last_frame_idx is not None and frame_idx == self._last_frame_idx and timestamp is None:
+		# Point #3 Fix: Always reject duplicate frame_idx regardless of whether timestamp is passed!
+		if self._last_frame_idx is not None and frame_idx == self._last_frame_idx:
 			return self.all_points[-1] if self.all_points else None
 
 		frame_delta = 1

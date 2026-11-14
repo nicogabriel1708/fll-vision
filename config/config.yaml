@@ -1,12 +1,12 @@
 # ==============================================================================
-# FLL-VISION (Production): Dual-Table (Doppeltisch) & Hybrid Motion+AI Config
+# FLL-VISION (Production): Single-Camera Dual-Table Architecture Config
 # Optimized for NVIDIA DGX Spark (GB10 Grace Blackwell)
 #
-# Subpage Routes:
-#   - /               : Public Match-Stream (Read-Only, Dual Team Table Streams)
-#   - /control        : Volunteer Control (Mobile-Optimized)
-#   - /configuration  : System Configuration (Doppeltisch & Einzeltische, Zoom, Heatmaps)
-#   - /admin          : Admin Panel (User & Team Management)
+# Architecture:
+#   - Exactly ONE central camera (`video.source`) captures both FLL tables simultaneously.
+#   - Table 1 (Left / Red Team) and Table 2 (Right / Blue Team) are calibrated
+#     independently via their own 4 corner points (`src_corners_px` & `table2_corners_px`),
+#     explicitly excluding the physical gap and wooden borders between the tables.
 # ==============================================================================
 
 project:
@@ -17,11 +17,8 @@ project:
   secret_key_env: "FLL_SECRET_KEY"
 
 video:
-  # Primary live camera source (default in production: connected USB camera /dev/video0;
-  # can be switched to RTSP or .mp4 live in /control or /configuration)
+  # Single central live camera source covering both FLL tables simultaneously
   source: "/dev/video0"
-  # Optional second camera source if Table 2 uses a separate physical camera
-  source_table2: ""
   training_videos_dir: "/workspace/data/training_videos"
   width: 1920
   height: 1080
@@ -33,49 +30,41 @@ video:
   save_annotated_video: false
   output_dir: "/workspace/data/outputs"
 
-# Official FLL Double-Table (Doppeltisch: 2 tables side-by-side) & Individual Table Configuration
+# Independent Dual-Table Calibration (2 FLL Tables side-by-side with physical gap & borders)
 table:
   real_width_mm: 2362.0
   real_height_mm: 1143.0
   auto_detect_borders: false
 
-  # Outer 4 corners of the entire Double-Table (Doppeltisch = both tables side-by-side)
-  # Order: [Top-Left, Top-Right, Bottom-Right, Bottom-Left]
-  double_table_corners_px:
-    - [60, 140]
-    - [1860, 140]
-    - [1900, 960]
-    - [20, 960]
-
-  # 4 corners of Single Table 1 (Left / Red Team Table) in camera pixel coordinates
+  # 4 inner mat/table corners of Table 1 (Left / Red Team) in camera pixels [TL, TR, BR, BL]
   src_corners_px:
     - [60, 140]
-    - [960, 140]
-    - [960, 960]
+    - [910, 140]
+    - [910, 960]
     - [20, 960]
 
-  # 4 corners of Single Table 2 (Right / Blue Team Table) in camera pixel coordinates
+  # 4 inner mat/table corners of Table 2 (Right / Blue Team) in camera pixels [TL, TR, BR, BL]
+  # Note the physical gap & table borders between Table 1 (x=910) and Table 2 (x=1010)
   table2_corners_px:
-    - [960, 140]
+    - [1010, 140]
     - [1860, 140]
     - [1900, 960]
-    - [960, 960]
+    - [1010, 960]
 
   apply_table_roi_mask: true
-  roi_padding_px: 15
+  roi_padding_px: 4
 
-  # Active zone on each single table ("full", "left_half", "right_half", "custom_ratio")
-  # Since Table 1 and Table 2 each have their own 4 corners now, "full" uses the entire single table,
-  # or "left_half" / "right_half" masks out an unused half on that table.
+  # Active zone on Table 1 ("full", "left_half", "right_half", "custom_ratio")
   active_half_mode: "full"
   active_x_ratio: [0.0, 1.00]
   active_y_ratio: [0.0, 1.00]
 
+  # Active zone on Table 2 ("full", "left_half", "right_half", "custom_ratio")
   table2_active_half_mode: "full"
   table2_active_x_ratio: [0.0, 1.00]
   table2_active_y_ratio: [0.0, 1.00]
 
-  # Launch Area / Home zones in millimeter table coordinates [x_min, y_min, x_max, y_max]
+  # Launch Area / Home zones in millimeter coordinates per table [x_min, y_min, x_max, y_max]
   launch_areas_mm:
     left_home: [0.0, 0.0, 600.0, 1143.0]
     right_home: [1762.0, 0.0, 2362.0, 1143.0]
@@ -89,16 +78,11 @@ streams:
 
   auto_zoom:
     enabled: true
-    # Unified zoom factor applied identically to both team streams (e.g. 2.2x zoom on robot)
     zoom_factor: 2.2
-    # Minimum zoom factor when zoomed out / idle (1.0 = fits active table area without stretching)
     idle_zoom_factor: 1.0
-    # Smooth exponential interpolation speed for camera pan & zoom
     pan_smoothing_alpha: 0.18
     zoom_smoothing_alpha: 0.12
-    # Hold zoom on last known robot position for N frames before smoothly zooming out
     hold_frames_before_zoom_out: 90
-    # Aspect-ratio border mode: "cover_crop" (zero side borders, zero stretching) or "blurred_backdrop"
     border_fill_mode: "cover_crop"
 
 # Hybrid Motion + NVIDIA TensorRT YOLO Configuration
@@ -112,7 +96,6 @@ inference:
   conf_threshold: 0.25
   iou_threshold: 0.45
   max_det: 25
-  # Hybrid Motion Detection + AI classification fallback
   use_motion_discovery: true
   motion_min_area_px: 450
   motion_max_area_ratio: 0.18

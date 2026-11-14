@@ -50,30 +50,90 @@ def validate_quad_geometry(pts: np.ndarray, min_area_px: float = 2500.0, min_edg
 	return ordered
 
 
-def split_double_table_into_two_tables(
-	double_corners_px: List[List[float]],
-) -> Tuple[List[List[float]], List[List[float]]]:
+def detect_two_independent_tables(
+	frame: np.ndarray,
+	fallback_t1: List[List[float]],
+	fallback_t2: List[List[float]],
+) -> Tuple[bool, List[List[float]], List[List[float]]]:
 	"""
-	Given the 4 outer corners of a Double-Table (2 FLL tables side-by-side),
-	splits them along the center line into:
-	  - table1_corners (Left Table / Red Team)
-	  - table2_corners (Right Table / Blue Team)
+	Detects the 4 corners of Table 1 (Left) and Table 2 (Right) independently from a single
+	central camera frame, preserving the physical gap and table borders between them.
+	Never uses a naive 50/50 image split!
 	"""
-	pts = order_quad_points(np.array(double_corners_px, dtype=np.float32))
-	tl, tr, br, bl = pts[0], pts[1], pts[2], pts[3]
-	mid_top = 0.5 * (tl + tr)
-	mid_bot = 0.5 * (bl + br)
+	if frame is None or frame.size == 0:
+		return False, fallback_t1, fallback_t2
 
-	t1 = [[round(float(p[0]), 1), round(float(p[1]), 1)] for p in [tl, mid_top, mid_bot, bl]]
-	t2 = [[round(float(p[0]), 1), round(float(p[1]), 1)] for p in [mid_top, tr, br, mid_bot]]
-	return t1, t2
+	h, w = frame.shape[:2]
+	img_area = float(h * w)
+	gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+	blurred = cv2.bilateralFilter(gray, 9, 75, 75)
+
+	med_val = np.median(blurred)
+	lower = int(max(20, 0.66 * med_val))
+	upper = int(min(255, 1.33 * med_val))
+	edges = cv2.Canny(blurred, lower, upper)
+	kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (7, 7))
+
+	candidates_binary = [
+		cv2.morphologyEx(edges, cv2.MORPH_CLOSE, kernel, iterations=2),
+		cv2.morphologyEx(
+			cv2.adaptiveThreshold(blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 31, 5),
+			cv2.MORPH_CLOSE,
+			kernel,
+			iterations=2,
+		),
+	]
+
+	left_quads: List[Tuple[float, np.ndarray]] = []
+	right_quads: List[Tuple[float, np.ndarray]] = []
+
+	for binary in candidates_binary:
+		contours, _ = cv2.findContours(binary, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+		contours = sorted(contours, key=cv2.contourArea, reverse=True)[:25]
+
+		for cnt in contours:
+			area = float(cv2.contourArea(cnt))
+			if area < 0.06 * img_area or area > 0.48 * img_area:
+				continue
+			hull = cv2.convexHull(cnt)
+			peri = cv2.arcLength(hull, True)
+			for eps_factor in np.linspace(0.015, 0.08, 10):
+				approx = cv2.approxPolyDP(hull, eps_factor * peri, True)
+				if len(approx) == 4 and cv2.isContourConvex(approx):
+					try:
+						pts = validate_quad_geometry(approx.reshape(4, 2))
+					except ValueError:
+						break
+					cx = float(np.mean(pts[:, 0]))
+					score = area / img_area
+					if cx < 0.48 * w and np.max(pts[:, 0]) < 0.55 * w:
+						left_quads.append((score, pts))
+					elif cx > 0.52 * w and np.min(pts[:, 0]) > 0.45 * w:
+						right_quads.append((score, pts))
+					break
+
+	found_any = False
+	t1_out = fallback_t1
+	t2_out = fallback_t2
+
+	if left_quads:
+		left_quads.sort(key=lambda item: item[0], reverse=True)
+		t1_out = [[round(float(p[0]), 1), round(float(p[1]), 1)] for p in left_quads[0][1]]
+		found_any = True
+
+	if right_quads:
+		right_quads.sort(key=lambda item: item[0], reverse=True)
+		t2_out = [[round(float(p[0]), 1), round(float(p[1]), 1)] for p in right_quads[0][1]]
+		found_any = True
+
+	return found_any, t1_out, t2_out
 
 
 class TableHomography:
 	"""
-	Handles 4-point perspective calibration for a single FLL table (or half-table),
-	automatic border detection, active zone masking, and aspect-ratio-preserving
-	2D Bird's-Eye View Minimap warping (never stretches the image!).
+	Handles 4-point perspective calibration for a single FLL table, strict polygon ROI extraction
+	(excluding the inter-table gap, wooden borders, and the neighboring table), and non-stretched
+	2D Bird's-Eye View warping.
 	"""
 
 	def __init__(self, cfg: TableConfig, minimap_base_height: int = 540):
@@ -125,7 +185,7 @@ class TableHomography:
 	) -> List[List[float]]:
 		"""
 		Hot-reloads the 4 table corners and active ratios at runtime.
-		Computes a non-stretched minimap size whose aspect ratio matches the selected table quad.
+		Validates convexity and matrix conditioning, and computes a non-stretched minimap size.
 		"""
 		with self._lock:
 			src_pts = validate_quad_geometry(np.array(corners_px, dtype=np.float32))
@@ -144,7 +204,6 @@ class TableHomography:
 			self.cfg.active_x_ratio = [rx0, rx1]
 			self.cfg.active_y_ratio = [ry0, ry1]
 
-			# Compute true visual aspect ratio of the selected table quad so the 2D minimap is NEVER stretched!
 			top_w = float(np.linalg.norm(src_pts[1] - src_pts[0]))
 			bot_w = float(np.linalg.norm(src_pts[2] - src_pts[3]))
 			left_h = float(np.linalg.norm(src_pts[3] - src_pts[0]))
@@ -186,7 +245,6 @@ class TableHomography:
 			)
 			self.H_px_to_minimap = cv2.getPerspectiveTransform(src_pts, dst_pts_minimap)
 
-			# Project the active table sub-rectangle from millimeter space back into camera pixel space
 			active_mm_quad = np.array(
 				[
 					[
@@ -211,7 +269,7 @@ class TableHomography:
 			return [[round(float(p[0]), 1), round(float(p[1]), 1)] for p in self._active_quad_px]
 
 	def get_active_bbox_px(self, frame_w: int, frame_h: int) -> Tuple[int, int, int, int]:
-		"""Returns the bounding box (x1, y1, x2, y2) of the active table region in pixel coordinates."""
+		"""Returns the bounding box (x1, y1, x2, y2) of this table's active region in pixel coordinates."""
 		with self._lock:
 			pts = self._active_quad_px
 		x1 = int(np.clip(np.min(pts[:, 0]), 0, frame_w - 2))
@@ -220,22 +278,19 @@ class TableHomography:
 		y2 = int(np.clip(np.max(pts[:, 1]), y1 + 2, frame_h))
 		return x1, y1, x2, y2
 
-	def is_mm_in_active_zone(self, x_mm: float, y_mm: float, margin_mm: float = 110.0) -> bool:
+	def is_mm_in_active_zone(self, x_mm: float, y_mm: float, margin_mm: float = 45.0) -> bool:
 		"""
-		Checks if a millimeter coordinate lies inside the active table zone.
-		Includes a default `margin_mm` (110 mm) tolerance on outer table edges so tall 3D robots
-		driving right along the walls (whose 2D bbox center projects slightly outside the border)
-		are never excluded, while keeping a strict split on an internal half-table boundary.
+		Checks if a millimeter coordinate lies inside this table's configured active zone.
+		Uses a tight `margin_mm` (45 mm) so the inter-table gap and neighboring table are strictly excluded.
 		"""
 		with self._lock:
 			rx0, rx1 = self.cfg.active_x_ratio
 			ry0, ry1 = self.cfg.active_y_ratio
 
-		# Apply margin on outer table edges (0.0 or 1.0), keep internal split line (e.g. 0.50) exact
-		left_pad = margin_mm if rx0 <= 0.01 else 25.0
-		right_pad = margin_mm if rx1 >= 0.99 else 25.0
-		top_pad = margin_mm if ry0 <= 0.01 else 25.0
-		bot_pad = margin_mm if ry1 >= 0.99 else 25.0
+		left_pad = margin_mm if rx0 <= 0.01 else 15.0
+		right_pad = margin_mm if rx1 >= 0.99 else 15.0
+		top_pad = margin_mm if ry0 <= 0.01 else 15.0
+		bot_pad = margin_mm if ry1 >= 0.99 else 15.0
 
 		min_x = rx0 * self.real_w - left_pad
 		max_x = rx1 * self.real_w + right_pad
@@ -243,11 +298,16 @@ class TableHomography:
 		max_y = ry1 * self.real_h + bot_pad
 		return (min_x <= x_mm <= max_x) and (min_y <= y_mm <= max_y)
 
-	def is_px_in_active_zone(self, x_px: float, y_px: float, margin_mm: float = 110.0) -> bool:
+	def is_px_in_active_zone(self, x_px: float, y_px: float, margin_mm: float = 45.0) -> bool:
 		x_mm, y_mm = self.px_to_mm(x_px, y_px, clip=False)
 		return self.is_mm_in_active_zone(x_mm, y_mm, margin_mm=margin_mm)
 
 	def apply_roi_mask(self, frame: np.ndarray) -> np.ndarray:
+		"""
+		Extracts ONLY this table's perspective polygon from the shared camera frame.
+		Everything outside this table's 4 corners (including the inter-table gap, borders,
+		and the other table) is strictly zeroed out.
+		"""
 		if not self.cfg.apply_table_roi_mask:
 			return frame
 
@@ -268,7 +328,7 @@ class TableHomography:
 		return cv2.bitwise_and(frame, frame, mask=mask_ref)
 
 	def auto_detect_corners(self, frame: np.ndarray, apply_immediately: bool = False) -> Tuple[bool, List[List[float]]]:
-		"""Automatically detects the 4 outer corners of the FLL table/double-table from a camera frame."""
+		"""Detects the 4 corners of this table from a camera frame."""
 		h, w = frame.shape[:2]
 		img_area = float(h * w)
 		gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -276,50 +336,31 @@ class TableHomography:
 
 		best_quad = None
 		best_score = -1.0
-		candidates_binary = []
-
 		med_val = np.median(blurred)
-		lower = int(max(20, 0.66 * med_val))
-		upper = int(min(255, 1.33 * med_val))
-		edges = cv2.Canny(blurred, lower, upper)
+		edges = cv2.Canny(blurred, int(max(20, 0.66 * med_val)), int(min(255, 1.33 * med_val)))
 		kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (7, 7))
-		candidates_binary.append(cv2.morphologyEx(edges, cv2.MORPH_CLOSE, kernel, iterations=2))
+		binary = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, kernel, iterations=2)
 
-		adapt = cv2.adaptiveThreshold(blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 31, 5)
-		candidates_binary.append(cv2.morphologyEx(adapt, cv2.MORPH_CLOSE, kernel, iterations=2))
-
-		_, otsu = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-		candidates_binary.append(cv2.morphologyEx(otsu, cv2.MORPH_OPEN, kernel, iterations=2))
-
-		for binary in candidates_binary:
-			contours, _ = cv2.findContours(binary, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
-			contours = sorted(contours, key=cv2.contourArea, reverse=True)[:15]
-
-			for cnt in contours:
-				area = cv2.contourArea(cnt)
-				if area < 0.15 * img_area or area > 0.95 * img_area:
-					continue
-				hull = cv2.convexHull(cnt)
-				peri = cv2.arcLength(hull, True)
-				for eps_factor in np.linspace(0.015, 0.08, 12):
-					approx = cv2.approxPolyDP(hull, eps_factor * peri, True)
-					if len(approx) == 4 and cv2.isContourConvex(approx):
-						pts = order_quad_points(approx.reshape(4, 2))
-						top_w = np.linalg.norm(pts[1] - pts[0])
-						bot_w = np.linalg.norm(pts[2] - pts[3])
-						left_h = np.linalg.norm(pts[3] - pts[0])
-						right_h = np.linalg.norm(pts[2] - pts[1])
-						avg_w = 0.5 * (top_w + bot_w)
-						avg_h = 0.5 * (left_h + right_h)
-						if avg_h < 50 or avg_w < 100:
-							continue
-						aspect = avg_w / (avg_h + 1e-6)
-						if 0.8 <= aspect <= 4.0:
-							score = area / img_area
-							if score > best_score:
-								best_score = score
-								best_quad = pts
+		contours, _ = cv2.findContours(binary, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+		contours = sorted(contours, key=cv2.contourArea, reverse=True)[:15]
+		for cnt in contours:
+			area = float(cv2.contourArea(cnt))
+			if area < 0.08 * img_area or area > 0.92 * img_area:
+				continue
+			hull = cv2.convexHull(cnt)
+			peri = cv2.arcLength(hull, True)
+			for eps_factor in np.linspace(0.015, 0.08, 10):
+				approx = cv2.approxPolyDP(hull, eps_factor * peri, True)
+				if len(approx) == 4 and cv2.isContourConvex(approx):
+					try:
+						pts = validate_quad_geometry(approx.reshape(4, 2))
+					except ValueError:
 						break
+					score = area / img_area
+					if score > best_score:
+						best_score = score
+						best_quad = pts
+					break
 
 		if best_quad is not None:
 			detected_list = [[round(float(p[0]), 1), round(float(p[1]), 1)] for p in best_quad]
@@ -355,8 +396,8 @@ class TableHomography:
 
 	def warp_to_minimap(self, frame: np.ndarray, active_only: bool = True) -> np.ndarray:
 		"""
-		Warps the camera view into an aspect-ratio-preserving 2D Bird's-Eye View of the table.
-		Never stretches the image!
+		Warps this table's region from the shared camera view into an aspect-ratio-preserving
+		2D Bird's-Eye View of this table.
 		"""
 		with self._lock:
 			H = self.H_px_to_minimap.copy()

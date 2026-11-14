@@ -168,20 +168,25 @@ def run_all_checks():
 		assert db.validate_session(s_adm["token"], "volunteers") is not None
 	print("[PASS 3/7] Users ('volunteers', 'engineers', 'admin') & PBKDF2-SHA256 RBAC verified.")
 
-	# 4. Default Camera Source (/dev/video0), Double-Table Split & Non-Stretched Homography Check
+	# 4. Single Central Camera (/dev/video0) & Independent Dual-Table Extraction (Excluding Inter-Table Gap)
 	cfg = load_config(str(ROOT / "config" / "config.yaml"))
 	assert cfg.video.source == "/dev/video0", f"Expected default video.source '/dev/video0', got {cfg.video.source}"
+	assert not hasattr(cfg.video, "source_table2"), "Second camera assumption must not exist!"
+	assert not hasattr(cfg.table, "double_table_corners_px"), "Naive double-table split must not exist!"
 	assert cfg.video.use_native_fps is True
 	assert cfg.video.save_annotated_video is False
 	homography = TableHomography(cfg.table)
 	homography2 = TableHomography(cfg.table.make_table2_config())
-	assert homography.is_mm_in_active_zone(450.0, 500.0) is True
+	assert homography.is_px_in_active_zone(450.0, 500.0) is True
+	assert homography2.is_px_in_active_zone(1450.0, 500.0) is True
+	# Inter-table gap (x=960) must be strictly excluded from BOTH Table 1 and Table 2!
+	assert homography.is_px_in_active_zone(960.0, 500.0) is False
+	assert homography2.is_px_in_active_zone(960.0, 500.0) is False
 	test_img = np.full((1080, 1920, 3), 255, dtype=np.uint8)
 	masked_t1 = homography.apply_roi_mask(test_img)
 	masked_t2 = homography2.apply_roi_mask(test_img)
-	# Table 1 (Left: x=60..960) masks out Table 2 (Right: x=1400), and vice versa
-	assert np.all(masked_t1[540, 1400] == 0)
-	assert np.all(masked_t2[540, 400] == 0)
+	assert np.all(masked_t1[540, 960] == 0) and np.all(masked_t1[540, 1450] == 0)
+	assert np.all(masked_t2[540, 960] == 0) and np.all(masked_t2[540, 450] == 0)
 
 	with tempfile.TemporaryDirectory() as tmpvid:
 		vdir = Path(tmpvid)
@@ -222,9 +227,10 @@ def run_all_checks():
 		found_sources = discover_available_video_sources(videos_dirs=[tmpout], probe_usb=False)
 		assert any(s["source"].endswith("demo_match.mp4") for s in found_sources)
 
-		tracker = FLLRobotTracker(cfg.tracker, homography, fps=30.0)
-		visualizer = FLLVisualizer(homography, enable_heatmap=True, decay=0.998)
-		compositor = DualStreamCompositor(cfg.streams, homography)
+		tracker = FLLRobotTracker(cfg.tracker, homography, fps=30.0, table_id=1)
+		tracker2 = FLLRobotTracker(cfg.tracker, homography2, fps=30.0, table_id=2)
+		visualizer = FLLVisualizer(homography, enable_heatmap=True, decay=0.998, homography_table2=homography2)
+		compositor = DualStreamCompositor(cfg.streams, homography, homography2)
 		db_temp = FLLDatabase(db_path=os.path.join(tmpout, "srv.sqlite3"))
 		srv = TelemetryDashboardServer(
 			cfg=cfg,
@@ -234,6 +240,8 @@ def run_all_checks():
 			match_state=ms,
 			tracker=tracker,
 			visualizer=visualizer,
+			homography_table2=homography2,
+			tracker_table2=tracker2,
 		)
 
 		reader = AsyncVideoReader(demo_vid, target_fps=60.0, loop_file=True, use_native_fps=False).start()
@@ -271,7 +279,8 @@ def run_all_checks():
 				latest_point_table1=pt,
 			)
 			assert s1.shape == (1080, 1080, 3) and s2.shape == (1080, 1080, 3)
-			assert np.array_equal(s1, s2)
+			# Table 1 and Table 2 extract distinct physical regions from the central camera frame!
+			assert not np.array_equal(s1, s2)
 			srv.update_state(frame, annotated, minimap, s1, s2, {"fps": 60.0, "state": tracker.state.value})
 			if frame_count >= 30:
 				break

@@ -15,7 +15,7 @@ import numpy as np
 from src.config_loader import load_config
 from src.database import FLLDatabase
 from src.detector import FLLDetector
-from src.homography import TableHomography, split_double_table_into_two_tables
+from src.homography import TableHomography, detect_two_independent_tables
 from src.logger import optimize_dgx_spark_hardware, setup_logging
 from src.match_state import MatchStateManager
 from src.server import TelemetryDashboardServer
@@ -60,9 +60,17 @@ class AsyncVideoReader:
 
 		self._latest_frame: Optional[np.ndarray] = None
 		self._latest_frame_ts: float = 0.0
+		self.last_capture_ts: float = 0.0
+		self._loop_wrapped: bool = False
 		self._frame_id: int = 0
 		self._stopped = False
 		self._thread: Optional[threading.Thread] = None
+
+	def consume_loop_wrap(self) -> bool:
+		with self._lock:
+			wrapped = self._loop_wrapped
+			self._loop_wrapped = False
+			return wrapped
 
 	def _update_fps_from_capture_unlocked(self):
 		logger = logging.getLogger("fll-vision.video")
@@ -182,11 +190,13 @@ class AsyncVideoReader:
 					time.sleep(0.05)
 					continue
 				ret, frame = self.cap.read()
+				wrapped_now = False
 				if (not ret or frame is None) and self.loop_file:
 					self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
 					ret, frame = self.cap.read()
 					loop_start_wall = time.perf_counter()
 					frames_in_segment = 0
+					wrapped_now = True
 				is_cam = self.is_camera
 				interval = self.frame_interval
 
@@ -203,9 +213,12 @@ class AsyncVideoReader:
 			prev_decode_wall = now_wall
 			self.camera_fps = 0.92 * self.camera_fps + 0.08 * min(240.0, 1.0 / dt_cam)
 
+			capture_ts = time.time()
 			with self._lock:
 				self._latest_frame = frame
-				self._latest_frame_ts = time.time()
+				self._latest_frame_ts = capture_ts
+				if wrapped_now:
+					self._loop_wrapped = True
 				self._frame_id += 1
 
 			if not is_cam:
@@ -231,6 +244,7 @@ class AsyncVideoReader:
 		while time.perf_counter() < deadline:
 			with self._lock:
 				if self._latest_frame is not None and self._frame_id > last_seen_id:
+					self.last_capture_ts = self._latest_frame_ts
 					return True, self._latest_frame.copy(), self._frame_id
 				if self._stopped:
 					return False, None, self._frame_id
@@ -238,10 +252,10 @@ class AsyncVideoReader:
 
 		with self._lock:
 			if self._latest_frame is not None and self._frame_id > last_seen_id:
+				self.last_capture_ts = self._latest_frame_ts
 				return True, self._latest_frame.copy(), self._frame_id
 			if self._stopped:
 				return False, None, self._frame_id
-		# Stream is still alive, but no new frame decoded during this timeout window -> return None so caller skips duplicate!
 		return True, None, last_seen_id
 
 	def release(self):
@@ -298,26 +312,10 @@ def run_pipeline(config_path: str):
 		return
 	reader.start()
 
-	# Point #18 & #19: Optional second independent camera stream (`source_table2`) for Table 2
-	reader2: Optional[AsyncVideoReader] = None
-	src2_str = str(cfg.video.source_table2 or "").strip()
-	if src2_str:
-		r2 = AsyncVideoReader(
-			src2_str,
-			target_fps=cfg.video.fps,
-			loop_file=True,
-			use_native_fps=cfg.video.use_native_fps,
-		)
-		if r2.isOpened():
-			reader2 = r2.start()
-			logger.info(f"Started independent second camera reader for Table 2: {src2_str}")
-		else:
-			logger.warning(f"Could not open source_table2 '{src2_str}'; using primary camera for both tables.")
-
+	# Single central camera setup: both Table 1 and Table 2 are extracted from `reader` (#2, #8)
 	detector = FLLDetector(cfg.inference)
 	tracker1 = FLLRobotTracker(cfg.tracker, homography1, fps=reader.effective_fps, table_id=1)
-	tracker2_fps = reader2.effective_fps if reader2 is not None else reader.effective_fps
-	tracker2 = FLLRobotTracker(cfg.tracker, homography2, fps=tracker2_fps, table_id=2)
+	tracker2 = FLLRobotTracker(cfg.tracker, homography2, fps=reader.effective_fps, table_id=2)
 	visualizer = FLLVisualizer(
 		homography1,
 		enable_heatmap=cfg.server.enable_heatmap,
@@ -351,7 +349,8 @@ def run_pipeline(config_path: str):
 	out_dir.mkdir(parents=True, exist_ok=True)
 	video_writer = None
 	video_writer_failed = False
-	last_video_write_wall: Optional[float] = None
+	video_record_start_wall: Optional[float] = None
+	video_written_frames: int = 0
 	last_minimap = None
 
 	last_reader_id = 0
@@ -375,18 +374,22 @@ def run_pipeline(config_path: str):
 			if frame is None or new_reader_id == last_reader_id:
 				continue
 
-			# Point #11: Use true camera frame counter from reader!
+			# Point #11 & #4: Use true camera frame counter & exact frame capture timestamp from reader!
 			last_reader_id = new_reader_id
 			frame_idx = last_reader_id
+			capture_ts = reader.last_capture_ts if reader.last_capture_ts > 0.0 else time.time()
 
-			# Point #19: Read independent second camera stream if configured
-			if reader2 is not None:
-				ret2, f2, new_r2_id = reader2.read_latest(last_reader2_id, timeout_s=0.005)
-				if ret2 and f2 is not None and new_r2_id > last_reader2_id:
-					latest_frame2 = f2
-					last_reader2_id = new_r2_id
-			frame2 = latest_frame2 if (reader2 is not None and latest_frame2 is not None) else frame
-			frame_idx2 = last_reader2_id if (reader2 is not None and last_reader2_id > 0) else frame_idx
+			# Point #7: If a video file wrapped around to frame 0, reset MOG2 history and tracker states!
+			if reader.consume_loop_wrap():
+				detector.reset_motion_history()
+				tracker1.reset(clear_runs=False)
+				tracker2.reset(clear_runs=False)
+
+			# Point #6: If camera source was switched at runtime, trigger fresh auto-calibration check
+			if server is not None and getattr(server, "needs_recalibration", False):
+				server.needs_recalibration = False
+				auto_detect_succeeded = False
+				auto_detect_attempts = 0
 
 			t_proc_start = time.perf_counter()
 
@@ -399,35 +402,29 @@ def run_pipeline(config_path: str):
 					and (frame_idx == 1 or frame_idx % 15 == 0)
 				):
 					auto_detect_attempts += 1
-					ok, dbl_corners = homography1.auto_detect_corners(frame, apply_immediately=False)
+					ok, t1_c, t2_c = detect_two_independent_tables(
+						frame, homography1.cfg.src_corners_px, homography2.cfg.src_corners_px
+					)
 					if ok:
 						try:
-							t1_c, t2_c = split_double_table_into_two_tables(dbl_corners)
 							homography1.update_corners(t1_c)
 							homography2.update_corners(t2_c)
-							cfg.table.double_table_corners_px = dbl_corners
+							cfg.table.src_corners_px = homography1.cfg.src_corners_px
 							cfg.table.table2_corners_px = homography2.cfg.src_corners_px
 							auto_detect_succeeded = True
 							logger.info(
-								f"Auto-detected Double-Table on attempt #{auto_detect_attempts} "
+								f"Auto-detected Table 1 & Table 2 on attempt #{auto_detect_attempts} "
 								f"(frame #{frame_idx}): T1={t1_c}, T2={t2_c}"
 							)
 						except ValueError as val_err:
 							logger.warning(f"Auto-detect candidate rejected by geometry validator: {val_err}")
 
-				# 1. Hybrid AI + MOG2 Motion Detection (#18, #19)
-				if reader2 is not None and latest_frame2 is not None:
-					# Two separate cameras: run detection separately on each camera's frame
-					dets1 = detector.detect(homography1.apply_roi_mask(frame), table_id=1, homography=homography1)
-					dets2 = detector.detect(homography2.apply_roi_mask(frame2), table_id=2, homography=homography2)
-				else:
-					# Single camera covering Double-Table: single GPU pass + dual MOG2 fusion
-					dets1, dets2 = detector.detect_dual_table(frame, homography1, homography2)
+				# 1. Single central camera covering Table 1 and Table 2: extract & detect both tables
+				dets1, dets2 = detector.detect_dual_table(frame, homography1, homography2)
 
-				# 2. Update independent Trackers for Table 1 and Table 2 with true frame indices (#11, #18)
-				now_ts = time.time()
-				pt1 = tracker1.update(frame_idx, dets1, timestamp=now_ts)
-				pt2 = tracker2.update(frame_idx2, dets2, timestamp=now_ts)
+				# 2. Update independent Trackers for Table 1 and Table 2 using exact capture timestamp (#4, #11)
+				pt1 = tracker1.update(frame_idx, dets1, timestamp=capture_ts)
+				pt2 = tracker2.update(frame_idx, dets2, timestamp=capture_ts)
 
 				# Group A #3: Measure both processing FPS and real camera FPS
 				now_wall = time.perf_counter()
@@ -446,7 +443,7 @@ def run_pipeline(config_path: str):
 					detections_table2=dets2,
 					tracker_table2=tracker2,
 					latest_point_table2=pt2,
-					frame_table2=frame2,
+					frame_table2=frame,
 					camera_fps=cam_fps,
 				)
 				last_minimap = minimap
@@ -457,12 +454,11 @@ def run_pipeline(config_path: str):
 					annotated_frame=annotated,
 					minimap_frame=minimap,
 					latest_point_table1=pt1,
-					raw_frame_table2=frame2,
+					raw_frame_table2=frame,
 					latest_point_table2=pt2,
 				)
 
-				# 5. Time-paced Video Recording (Group A #4: duplicate frame writes if frames were skipped
-				#    so exported MP4 always plays at exact 1.0x real-time speed!)
+				# 5. Cumulative Wall-Clock Video Recording (Point #14 Fix: no 4-frame cap, zero time drift!)
 				if cfg.video.save_annotated_video and not video_writer_failed:
 					writer_fps = max(1.0, float(reader.effective_fps))
 					if video_writer is None:
@@ -475,16 +471,15 @@ def run_pipeline(config_path: str):
 							video_writer = None
 							video_writer_failed = True
 						else:
-							last_video_write_wall = now_wall
-					if video_writer is not None:
-						if last_video_write_wall is None:
-							n_writes = 1
-						else:
-							elapsed_w = max(0.0, now_wall - last_video_write_wall)
-							n_writes = max(1, min(4, int(round(elapsed_w * writer_fps))))
-						last_video_write_wall = now_wall
+							video_record_start_wall = now_wall
+							video_written_frames = 0
+					if video_writer is not None and video_record_start_wall is not None:
+						elapsed_total = max(0.0, now_wall - video_record_start_wall)
+						target_total_frames = int(round(elapsed_total * writer_fps)) + 1
+						n_writes = max(1, min(300, target_total_frames - video_written_frames))
 						for _ in range(n_writes):
 							video_writer.write(annotated)
+						video_written_frames += n_writes
 
 				if server is not None:
 					combined_runs = [
@@ -527,7 +522,6 @@ def run_pipeline(config_path: str):
 						"state_table2": tracker2.state.value,
 						"current_run_id": tracker1.current_run_id,
 						"current_run_id_table2": tracker2.current_run_id,
-						"double_table_corners_px": cfg.table.double_table_corners_px,
 						"table_corners_px": homography1.cfg.src_corners_px,
 						"table2_corners_px": homography2.cfg.src_corners_px,
 						"active_half_mode": homography1.cfg.active_half_mode,
@@ -559,8 +553,6 @@ def run_pipeline(config_path: str):
 		logger.info("Received shutdown signal (KeyboardInterrupt). Stopping gracefully...")
 	finally:
 		reader.release()
-		if reader2 is not None:
-			reader2.release()
 		if video_writer is not None:
 			video_writer.release()
 
@@ -575,7 +567,6 @@ def run_pipeline(config_path: str):
 				json.dump(
 					{
 						"total_frames": last_reader_id,
-						"double_table_corners_px": cfg.table.double_table_corners_px,
 						"table_corners_px": homography1.cfg.src_corners_px,
 						"table2_corners_px": homography2.cfg.src_corners_px,
 						"runs": [

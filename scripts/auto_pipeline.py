@@ -1,12 +1,13 @@
 """
 FLL-Vision Automated Training Pipeline (Extract -> Auto-Label -> Split -> Train -> TensorRT Export)
-Supports:
-  - Interactive checks before overwriting an existing trained model (`models/fll_yolo11s.pt` / `.engine`)
-  - Interactive check to reuse an already extracted & auto-labeled dataset (`data/dataset/images/train`)
-    so Step 1 & Step 2 don't have to be repeated if they already succeeded!
-  - Both one single long video and multiple short videos in `data/training_videos/` (regardless of filename)
-  - Strict Active Half-Table Masking: ignores the unused half of the table (hands, bottles, etc.)
-    and everything outside the table border during both frame extraction/auto-labeling and training.
+Audited & Hardened for Single-Camera Dual-Table FLL Setups:
+  - Supports training videos where ONLY Table 1 (Left), ONLY Table 2 (Right), or BOTH tables are used!
+    Automatically evaluates both calibrated table regions (`homography1` and `homography2`) and masks out
+    whichever table has no active robot/hand in that frame so distractions on an unused table are ignored.
+  - Point #11 Fix: Strips MOG2 shadows (`detectShadows=True`, threshold > 200) and rejects global exposure shifts.
+  - Point #12 Fix: Prevents Train/Val data leakage by splitting across distinct videos (when multiple videos exist)
+    or enforcing a wide chronological embargo buffer gap between train and val blocks (when 1 video exists).
+  - Point #13 Fix: Never labels unconfirmed motion blobs as 'robot' without YOLO-World AI confirmation.
 """
 
 import argparse
@@ -16,7 +17,7 @@ import random
 import shutil
 import sys
 from pathlib import Path
-from typing import List, Tuple
+from typing import Dict, List, Tuple
 
 import cv2
 import numpy as np
@@ -38,6 +39,9 @@ logging.basicConfig(
 logger = logging.getLogger("fll-vision.auto-pipeline")
 
 SUPPORTED_VIDEO_EXTS = {".mp4", ".mov", ".mkv", ".avi", ".webm", ".m4v", ".ts"}
+
+# SampleTuple: (img_path, lbl_path, source_video_name)
+SampleTuple = Tuple[Path, Path, str]
 
 
 def discover_training_videos(videos_dir: Path, fallback_video: Path | None = None) -> List[Path]:
@@ -77,17 +81,51 @@ def box_iou(boxA: np.ndarray, boxB: np.ndarray) -> float:
 	return float(inter / (areaA + areaB - inter + 1e-6))
 
 
+def _extract_shadow_free_motion_boxes(
+	fg_mask: np.ndarray,
+	homography: TableHomography,
+	frame_w: int,
+	frame_h: int,
+) -> List[np.ndarray]:
+	"""Extracts shadow-free motion boxes for a single table while rejecting global illumination jumps (#11)."""
+	_, no_shadow = cv2.threshold(fg_mask, 200, 255, cv2.THRESH_BINARY)
+	ax1, ay1, ax2, ay2 = homography.get_active_bbox_px(frame_w, frame_h)
+	table_area = float(max(1, (ax2 - ax1) * (ay2 - ay1)))
+
+	if float(cv2.countNonZero(no_shadow)) > (table_area * 0.14):
+		return []
+
+	kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
+	clean = cv2.morphologyEx(no_shadow, cv2.MORPH_OPEN, kernel)
+	clean = cv2.dilate(clean, kernel, iterations=2)
+	contours, _ = cv2.findContours(clean, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+	boxes: List[np.ndarray] = []
+	for cnt in contours:
+		area = float(cv2.contourArea(cnt))
+		if 450.0 < area < (table_area * 0.20):
+			x, y, bw, bh = cv2.boundingRect(cnt)
+			cx, cy = x + 0.5 * bw, y + 0.5 * bh
+			if homography.is_px_in_active_zone(cx, cy):
+				boxes.append(np.array([x, y, x + bw, y + bh], dtype=float))
+	return boxes
+
+
 def step1_extract_and_autolabel(
 	videos: List[Path],
-	homography: TableHomography,
+	homography1: TableHomography,
 	raw_dir: Path,
 	target_total_frames: int = 600,
 	device: str = "cuda:0",
-) -> List[Tuple[Path, Path]]:
+	homography2: TableHomography | None = None,
+) -> List[SampleTuple]:
 	"""
-	Adaptively samples frames across either 1 long video or N short videos,
-	masks out the unused half of the FLL table and outside surroundings,
-	and generates YOLO labels for 'robot' (0) and 'hand' (1).
+	Adaptively samples frames across 1 long or N short training videos.
+	Supports videos where ONLY Table 1 (Left), ONLY Table 2 (Right), or BOTH tables are used:
+	  - Evaluates Table 1 and Table 2 independently.
+	  - Masks out whichever table has no confirmed activity on that frame so distractions on an
+	    unused table never pollute the training images.
+	  - Point #13 Fix: Only creates labels from YOLO-World AI detections (never from unconfirmed motion alone).
 	"""
 	img_dir = raw_dir / "images"
 	lbl_dir = raw_dir / "labels"
@@ -117,45 +155,48 @@ def step1_extract_and_autolabel(
 		]
 	)
 
-	samples: List[Tuple[Path, Path]] = []
+	samples: List[SampleTuple] = []
 	sample_idx = 0
 
 	for video_path in videos:
 		logger.info(f"Processing training video: {video_path.name}")
 		cap = cv2.VideoCapture(str(video_path))
-		bg_sub = cv2.createBackgroundSubtractorMOG2(history=300, varThreshold=36, detectShadows=False)
+		bg_sub1 = cv2.createBackgroundSubtractorMOG2(history=250, varThreshold=32, detectShadows=True)
+		bg_sub2 = cv2.createBackgroundSubtractorMOG2(history=250, varThreshold=32, detectShadows=True)
 		frame_idx = 0
+		t1_active_hits = 0
+		t2_active_hits = 0
 
 		while True:
 			ret, frame = cap.read()
 			if not ret:
 				break
 			frame_idx += 1
-			if frame_idx == 1 and homography.cfg.auto_detect_borders:
-				homography.auto_detect_corners(frame, apply_immediately=True)
 
-			masked = homography.apply_roi_mask(frame)
-			fg_mask = bg_sub.apply(masked)
+			masked1 = homography1.apply_roi_mask(frame)
+			fg_mask1 = bg_sub1.apply(masked1)
+
+			if homography2 is not None:
+				masked2 = homography2.apply_roi_mask(frame)
+				fg_mask2 = bg_sub2.apply(masked2)
+			else:
+				masked2 = None
+				fg_mask2 = None
 
 			if frame_idx % adaptive_stride != 0 or frame_idx < 20:
 				continue
 
-			h, w = masked.shape[:2]
+			h, w = frame.shape[:2]
+			motion_boxes1 = _extract_shadow_free_motion_boxes(fg_mask1, homography1, w, h)
+			motion_boxes2 = (
+				_extract_shadow_free_motion_boxes(fg_mask2, homography2, w, h)
+				if (homography2 is not None and fg_mask2 is not None)
+				else []
+			)
 
-			kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
-			clean_mask = cv2.morphologyEx(fg_mask, cv2.MORPH_OPEN, kernel)
-			clean_mask = cv2.dilate(clean_mask, kernel, iterations=2)
-			contours, _ = cv2.findContours(clean_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
-			motion_boxes = []
-			for cnt in contours:
-				area = cv2.contourArea(cnt)
-				if 800 < area < (w * h * 0.22):
-					x, y, bw, bh = cv2.boundingRect(cnt)
-					motion_boxes.append(np.array([x, y, x + bw, y + bh], dtype=float))
-
+			combined_masked = cv2.bitwise_or(masked1, masked2) if masked2 is not None else masked1
 			results = world_model.predict(
-				source=masked,
+				source=combined_masked,
 				imgsz=960,
 				conf=0.20,
 				iou=0.45,
@@ -163,7 +204,8 @@ def step1_extract_and_autolabel(
 				verbose=False,
 			)
 
-			yolo_annotations: List[str] = []
+			anns_t1: List[str] = []
+			anns_t2: List[str] = []
 
 			if results and results[0].boxes is not None and len(results[0].boxes) > 0:
 				boxes = results[0].boxes.xyxy.cpu().numpy()
@@ -171,68 +213,116 @@ def step1_extract_and_autolabel(
 				confs = results[0].boxes.conf.cpu().numpy()
 
 				for box, cid, conf in zip(boxes, cls_ids, confs):
-					cx_px = 0.5 * (box[0] + box[2])
-					cy_px = 0.5 * (box[1] + box[3])
-					x_mm, y_mm = homography.px_to_mm(cx_px, cy_px)
-					if not homography.is_mm_in_active_zone(x_mm, y_mm):
-						continue
-
+					cx_px = float(0.5 * (box[0] + box[2]))
+					cy_px = float(box[1] + 0.72 * (box[3] - box[1]))
 					target_cls = 0 if cid in (0, 1) else 1
-					has_motion = any(box_iou(box, mbox) > 0.10 for mbox in motion_boxes)
-					if conf >= 0.45 or (conf >= 0.22 and has_motion):
-						cx, cy, bw, bh = xyxy_to_yolo(box, w, h)
-						yolo_annotations.append(f"{target_cls} {cx:.6f} {cy:.6f} {bw:.6f} {bh:.6f}")
 
-			# Group B #3 Fix: Only label a motion box as 'robot' if it exhibits sustained directional
-			# travel across the mat (prevents vibrating mission models or shadows from being mislabeled!)
-			has_hand = any(line.startswith("1 ") for line in yolo_annotations)
-			has_robot = any(line.startswith("0 ") for line in yolo_annotations)
-			if not has_robot and not has_hand and len(motion_boxes) == 1:
-				mbox = motion_boxes[0]
-				mcx = 0.5 * (mbox[0] + mbox[2])
-				mcy = 0.5 * (mbox[1] + mbox[3])
-				x_mm, y_mm = homography.px_to_mm(mcx, mcy)
-				in_base, _ = homography.is_in_launch_area(x_mm, y_mm)
-				prev_mm = getattr(step1_extract_and_autolabel, "_prev_motion_mm", None)
-				step1_extract_and_autolabel._prev_motion_mm = (x_mm, y_mm)
-				if prev_mm is not None and not in_base and homography.is_mm_in_active_zone(x_mm, y_mm):
-					travel_mm = float(np.hypot(x_mm - prev_mm[0], y_mm - prev_mm[1]))
-					# Require genuine travel distance (35mm..450mm) between sampled frames
-					if 35.0 <= travel_mm <= 450.0:
-						cx, cy, bw, bh = xyxy_to_yolo(mbox, w, h)
-						yolo_annotations.append(f"0 {cx:.6f} {cy:.6f} {bw:.6f} {bh:.6f}")
+					in_t1 = homography1.is_px_in_active_zone(cx_px, cy_px)
+					in_t2 = homography2.is_px_in_active_zone(cx_px, cy_px) if homography2 is not None else False
 
-			is_static_background = len(motion_boxes) == 0 and len(yolo_annotations) == 0 and random.random() < 0.15
+					if in_t1:
+						has_motion1 = any(box_iou(box, mbox) > 0.10 for mbox in motion_boxes1)
+						if conf >= 0.45 or (conf >= 0.24 and has_motion1):
+							cx, cy, bw, bh = xyxy_to_yolo(box, w, h)
+							anns_t1.append(f"{target_cls} {cx:.6f} {cy:.6f} {bw:.6f} {bh:.6f}")
+					elif in_t2:
+						has_motion2 = any(box_iou(box, mbox) > 0.10 for mbox in motion_boxes2)
+						if conf >= 0.45 or (conf >= 0.24 and has_motion2):
+							cx, cy, bw, bh = xyxy_to_yolo(box, w, h)
+							anns_t2.append(f"{target_cls} {cx:.6f} {cy:.6f} {bw:.6f} {bh:.6f}")
+
+			# Point #13 Fix: Do NOT auto-label unconfirmed motion boxes without AI confirmation!
+			# Select which table mask(s) to save based on which table actually has confirmed activity:
+			# - If only Table 1 (Left) is used in this frame -> save `masked1` (masks out unused Table 2)
+			# - If only Table 2 (Right) is used in this frame -> save `masked2` (masks out unused Table 1)
+			# - If both tables are used simultaneously -> save `combined_masked`
+			yolo_annotations = anns_t1 + anns_t2
+			if anns_t1 and not anns_t2:
+				out_img = masked1
+				t1_active_hits += 1
+			elif anns_t2 and not anns_t1 and masked2 is not None:
+				out_img = masked2
+				t2_active_hits += 1
+			else:
+				out_img = combined_masked
+				if anns_t1:
+					t1_active_hits += 1
+				if anns_t2:
+					t2_active_hits += 1
+
+			is_static_background = (
+				len(motion_boxes1) == 0
+				and len(motion_boxes2) == 0
+				and len(yolo_annotations) == 0
+				and random.random() < 0.12
+			)
 			if yolo_annotations or is_static_background:
 				sample_idx += 1
-				stem = f"fll_auto_{sample_idx:06d}"
+				stem = f"{video_path.stem}_f{frame_idx:06d}_{sample_idx:05d}"
 				img_path = img_dir / f"{stem}.jpg"
 				lbl_path = lbl_dir / f"{stem}.txt"
-				cv2.imwrite(str(img_path), masked)
+				cv2.imwrite(str(img_path), out_img)
 				with open(lbl_path, "w", encoding="utf-8") as f:
 					f.write("\n".join(yolo_annotations))
-				samples.append((img_path, lbl_path))
+				samples.append((img_path, lbl_path, video_path.name))
 
 		cap.release()
+		logger.info(
+			f"Finished {video_path.name}: Table 1 (Left) active frames={t1_active_hits}, "
+			f"Table 2 (Right) active frames={t2_active_hits}"
+		)
 
-	logger.info(f"Auto-labeled {len(samples)} active-half frames.")
+	logger.info(f"Auto-labeled {len(samples)} total frames across {len(videos)} video(s).")
 	return samples
 
 
-def step2_split_dataset(samples: List[Tuple[Path, Path]], dataset_dir: Path, val_ratio: float = 0.15):
+def step2_split_dataset(samples: List[SampleTuple], dataset_dir: Path, val_ratio: float = 0.15):
 	"""
-	Group B #2 Fix: Chronological contiguous block split with buffer gap!
-	Prevents data leakage caused by random frame-level shuffling where nearly identical
-	adjacent video frames end up in both train and val sets.
+	Point #12 Fix: Zero-Leakage Train/Val Dataset Split!
+	  - Case A (Multiple training videos): Splits strictly at the VIDEO level so frames from the
+	    same video never appear in both `train` and `val`.
+	  - Case B (Single training video): Sorts chronologically by frame index and enforces a wide
+	    embargo buffer gap (>=15 sampled frames) between the training block and validation block.
 	"""
-	samples_sorted = sorted(samples, key=lambda pair: pair[0].name)
-	n_total = len(samples_sorted)
-	n_val = max(1, int(round(n_total * val_ratio)))
-	# Leave a temporal buffer gap of up to 3 frames between train block and val block
-	buffer_gap = min(3, max(0, n_total - n_val - 5))
-	split_idx = max(1, n_total - n_val - buffer_gap)
-	train_samples = samples_sorted[:split_idx]
-	val_samples = samples_sorted[split_idx + buffer_gap :]
+	by_video: Dict[str, List[SampleTuple]] = {}
+	for item in samples:
+		vid_name = item[2] if len(item) >= 3 else "default_video"
+		by_video.setdefault(vid_name, []).append(item)
+
+	train_samples: List[SampleTuple] = []
+	val_samples: List[SampleTuple] = []
+
+	if len(by_video) >= 2:
+		# Video-level split: assign whole videos to validation until ~val_ratio is reached
+		vid_names = sorted(by_video.keys(), key=lambda k: len(by_video[k]))
+		total_n = len(samples)
+		target_val = max(1, int(round(total_n * val_ratio)))
+		for vname in vid_names:
+			if len(val_samples) < target_val and (len(by_video) - len(val_samples)) > 1:
+				val_samples.extend(by_video[vname])
+			else:
+				train_samples.extend(by_video[vname])
+		if not train_samples and val_samples:
+			# Safety fallback if only 2 videos and first took all
+			train_samples = val_samples[: -max(1, len(val_samples) // 5)]
+			val_samples = val_samples[-max(1, len(val_samples) // 5) :]
+		logger.info(
+			f"Zero-leakage VIDEO-level split across {len(by_video)} videos: "
+			f"{len(train_samples)} train, {len(val_samples)} val images."
+		)
+	else:
+		# Single video: contiguous chronological split with wide embargo buffer gap
+		samples_sorted = sorted(samples, key=lambda item: item[0].name)
+		n_total = len(samples_sorted)
+		n_val = max(1, int(round(n_total * val_ratio)))
+		buffer_gap = min(15, max(2, int(n_total * 0.05))) if n_total > 20 else min(3, max(0, n_total - n_val - 2))
+		split_idx = max(1, n_total - n_val - buffer_gap)
+		train_samples = samples_sorted[:split_idx]
+		val_samples = samples_sorted[split_idx + buffer_gap :]
+		logger.info(
+			f"Zero-leakage chronological block split (embargo gap={buffer_gap} samples): "
+			f"{len(train_samples)} train, {len(val_samples)} val images."
+		)
 
 	for split_name, split_list in [("train", train_samples), ("val", val_samples)]:
 		s_img_dir = dataset_dir / "images" / split_name
@@ -244,11 +334,10 @@ def step2_split_dataset(samples: List[Tuple[Path, Path]], dataset_dir: Path, val
 		s_img_dir.mkdir(parents=True, exist_ok=True)
 		s_lbl_dir.mkdir(parents=True, exist_ok=True)
 
-		for img_p, lbl_p in split_list:
+		for item in split_list:
+			img_p, lbl_p = item[0], item[1]
 			shutil.copy2(img_p, s_img_dir / img_p.name)
 			shutil.copy2(lbl_p, s_lbl_dir / lbl_p.name)
-
-	logger.info(f"Dataset split complete: {len(train_samples)} train, {len(val_samples)} val images.")
 
 
 def step3_train_and_export_trt(
@@ -327,10 +416,9 @@ def main():
 	target_engine = Path(cfg.inference.engine_trt)
 	is_interactive = sys.stdin.isatty() and not args.force
 
-	# 1. Check if a finished trained model already exists
 	if (target_pt.exists() or target_engine.exists()) and is_interactive:
 		print("\n==================================================================")
-		print(f" [Info] Ein trainiertes Modell existiert bereits:")
+		print(" [Info] Ein trainiertes Modell existiert bereits:")
 		if target_pt.exists():
 			print(f"   - PyTorch Weights : {target_pt}")
 		if target_engine.exists():
@@ -356,7 +444,7 @@ def main():
 			reuse_existing_dataset = True
 		elif is_interactive:
 			print("\n==================================================================")
-			print(f" [Dataset gefunden] Bereits extrahiertes & annotiertes Dataset vorhanden:")
+			print(" [Dataset gefunden] Bereits extrahiertes & annotiertes Dataset vorhanden:")
 			print(f"   - Train-Bilder : {len(existing_train_imgs)}")
 			print(f"   - Val-Bilder   : {len(existing_val_imgs)}")
 			print("==================================================================")
@@ -371,7 +459,8 @@ def main():
 				reuse_existing_dataset = True
 
 	if not reuse_existing_dataset:
-		homography = TableHomography(cfg.table)
+		homography1 = TableHomography(cfg.table)
+		homography2 = TableHomography(cfg.table.make_table2_config())
 		videos_dir = Path(args.videos_dir if args.videos_dir else cfg.video.training_videos_dir)
 		fallback_vid = (
 			Path(str(cfg.video.source))
@@ -387,13 +476,14 @@ def main():
 
 		samples = step1_extract_and_autolabel(
 			videos=videos,
-			homography=homography,
+			homography1=homography1,
 			raw_dir=raw_dir,
 			target_total_frames=args.target_frames,
 			device=cfg.inference.device,
+			homography2=homography2,
 		)
 		if len(samples) < 10:
-			raise RuntimeError("Too few active frames extracted. Check video or active table half configuration.")
+			raise RuntimeError("Too few active frames extracted. Check video or table calibration.")
 
 		step2_split_dataset(samples, dataset_dir=dataset_dir, val_ratio=0.15)
 	else:
