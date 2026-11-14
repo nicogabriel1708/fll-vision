@@ -65,7 +65,7 @@
 
 			.grid-2 {
 				display: grid;
-				grid-template-columns: 1.6fr 1fr;
+				grid-template-columns: 1.55fr 1.05fr;
 				gap: 20px;
 				align-items: start;
 			}
@@ -103,7 +103,7 @@
 				cursor: pointer;
 				border: none;
 				border-radius: 8px;
-				padding: 9px 15px;
+				padding: 9px 14px;
 				font-weight: 700;
 				font-size: 13px;
 				color: #fff;
@@ -127,6 +127,22 @@
 				background: #f59e0b;
 				color: #0f172a;
 			}
+			.btn.red-active {
+				background: #ef4444;
+				color: #fff;
+				box-shadow: 0 0 0 2px #fca5a5;
+			}
+			.btn.blue-active {
+				background: #3b82f6;
+				color: #fff;
+				box-shadow: 0 0 0 2px #93c5fd;
+			}
+			.btn.dbl-active {
+				background: #f59e0b;
+				color: #0f172a;
+				box-shadow: 0 0 0 2px #fde68a;
+			}
+
 			.canvas-wrap {
 				position: relative;
 				width: 100%;
@@ -163,6 +179,24 @@
 				color: #34d399;
 				margin-left: 12px;
 			}
+			.preview-img-box {
+				width: 100%;
+				background: #020617;
+				border: 1px solid #475569;
+				border-radius: 8px;
+				padding: 6px;
+				display: flex;
+				justify-content: center;
+				align-items: center;
+				margin-top: 6px;
+			}
+			.preview-img-box img {
+				max-width: 100%;
+				height: auto;
+				object-fit: contain;
+				border-radius: 4px;
+				display: block;
+			}
 		</style>
 	</head>
 	<body>
@@ -182,18 +216,18 @@
 		<!-- Navigation Menus on the Same Page -->
 		<div class="nav-tabs">
 			<button class="tab-btn active" onclick="openTab('tabCrop', this)">
-				📐 1. Tisch-Größe, Halbtisch-Maske & Crop
+				📐 1. Doppeltisch & Einzeltische (Tisch 1 & 2)
 			</button>
 			<button class="tab-btn" onclick="openTab('tabZoom', this)">🔍 2. Stream Auto-Zoom & 1:1 Ränder</button>
 			<button class="tab-btn" onclick="openTab('tabHeatmap', this)">
 				🔥 3. Heatmaps & Lauf-Dokumentation (Runs)
 			</button>
 			<button class="tab-btn" onclick="openTab('tabTracker', this)">
-				⚙️ 4. KI-Tracker, Hand-Veto & Telemetrie
+				⚙️ 4. Hybrid Motion+KI Tracker & Telemetrie
 			</button>
 		</div>
 
-		<!-- TAB 1: VIDEO SOURCE (USB / RTSP / FILE), TABLE SIZE, ACTIVE HALF & SELECTION-BOX CROP -->
+		<!-- TAB 1: VIDEO SOURCE, DOUBLE-TABLE & BOTH SINGLE TABLES -->
 		<div id="tabCrop" class="tab-panel active">
 			<!-- LIVE CAMERA / RTSP / VIDEO SOURCE SELECTION CARD -->
 			<div class="card" style="border-color: #0284c7">
@@ -221,8 +255,8 @@
 					</div>
 					<div>
 						<label style="margin-top: 0"
-							>Video-Quelle (USB z.B. <code>/dev/video0</code> oder <code>0</code>, RTSP z.B.
-							<code>rtsp://...</code> oder Dateipfad)</label
+							>Video-Quelle (USB z.B. <code>/dev/video0</code>, RTSP z.B. <code>rtsp://...</code> oder
+							<code>.mp4</code> Pfad)</label
 						>
 						<input
 							id="videoSourceInput"
@@ -253,7 +287,8 @@
 						style="
 							width: 192px;
 							height: 108px;
-							object-fit: cover;
+							object-fit: contain;
+							background: #020617;
 							border-radius: 6px;
 							border: 1px solid #38bdf8;
 							display: none;
@@ -268,7 +303,35 @@
 
 			<div class="grid-2">
 				<div class="card">
-					<h3>Kamerabild: Tischgrenzen (Selection-Box / 4-Ecken) & Aktive Tischhälfte</h3>
+					<h3>Kamerabild: Gesamten Doppeltisch (2 Tische nebeneinander) & beide Einzeltische festlegen</h3>
+
+					<!-- Selection Target Bar: Double-Table vs. Table 1 (Left) vs. Table 2 (Right) -->
+					<div
+						style="
+							background: #0f172a;
+							padding: 10px;
+							border-radius: 10px;
+							border: 1px solid #334155;
+							margin-bottom: 10px;
+						"
+					>
+						<div style="font-size: 12px; color: #94a3b8; font-weight: 700; margin-bottom: 6px">
+							1. Welchen Bereich möchtest du im Bild bearbeiten?
+						</div>
+						<div style="display: flex; gap: 8px; flex-wrap: wrap">
+							<button id="targetDoubleBtn" class="btn dbl-active" onclick="setEditTarget('double')">
+								🟧 Gesamter Doppeltisch (Beide Tische zusammen)
+							</button>
+							<button id="targetT1Btn" class="btn" onclick="setEditTarget('table1')">
+								🟥 Einzeltisch 1 (Links / Red Team)
+							</button>
+							<button id="targetT2Btn" class="btn" onclick="setEditTarget('table2')">
+								🟦 Einzeltisch 2 (Rechts / Blue Team)
+							</button>
+						</div>
+					</div>
+
+					<!-- Tool Mode Bar -->
 					<div style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px">
 						<button id="modeRectBtn" class="btn warn" onclick="setCropMode('rect')">
 							🔲 Rechteck Selection-Box
@@ -276,83 +339,144 @@
 						<button id="modeQuadBtn" class="btn" onclick="setCropMode('quad')">
 							📐 4-Ecken frei ziehen
 						</button>
-						<button class="btn accent" onclick="autoDetectBorders()">🪄 Auto-Detect Tischkanten</button>
-						<button class="btn" onclick="reloadCalibrationFrame()">🔄 Bild aktualisieren</button>
+						<button
+							class="btn accent"
+							onclick="splitDoubleTableNow()"
+							title="Teilt den gelben Doppeltisch exakt in der Mitte in Einzeltisch 1 (Links) und Einzeltisch 2 (Rechts)"
+						>
+							✂️ Doppeltisch mittig in Tisch 1 & 2 splitten
+						</button>
+						<button class="btn" onclick="autoDetectBorders()">🪄 Auto-Detect</button>
+						<button class="btn" onclick="reloadCalibrationFrame()">🔄 Bild neu laden</button>
 						<button class="btn primary" onclick="saveTableCalibration()">
-							💾 Speichern & Live aktivieren
+							💾 Alle Tische speichern & aktivieren
 						</button>
 					</div>
+
 					<div class="canvas-wrap">
 						<canvas id="calibCanvas" width="1920" height="1080"></canvas>
 					</div>
 					<p style="font-size: 12px; color: #94a3b8; margin-top: 8px">
-						<b>Hinweis zur Halbtisch-Maskierung:</b> Der rot schraffierte Teil des Tisches ist die
-						<b>ungenutzte Tischhälfte</b> (Hände, Flaschen etc.) und wird beim Training & Tracking zu 100%
-						ausgeschlossen!
+						<b>Tipp:</b> Du kannst entweder zuerst den <b>🟧 Gesamten Doppeltisch</b> markieren (er teilt
+						sich automatisch in <b>🟥 Tisch 1 Links</b> und <b>🟦 Tisch 2 Rechts</b>) und danach auf
+						<b>🟥 Einzeltisch 1</b> bzw. <b>🟦 Einzeltisch 2</b> klicken, um jeden der beiden Tische
+						millimetergenau einzeln anzupassen!
 					</p>
 				</div>
 
 				<div class="card">
-					<h3>Aktive Tischhälfte & 2D-Entzerrungs-Vorschau</h3>
-					<label>Aktiver Bereich des FLL-Tisches (Matte mit Aufgaben)</label>
-					<select id="activeHalfMode" onchange="onHalfModeChange()">
-						<option value="left_half">
-							Nur Linke Tischhälfte aktiv (0% – 50%, Rechte Hälfte ignoriert)
-						</option>
-						<option value="right_half">
-							Nur Rechte Tischhälfte aktiv (50% – 100%, Linke Hälfte ignoriert)
-						</option>
-						<option value="full">Gesamter Tisch aktiv (0% – 100%)</option>
-						<option value="custom_ratio">Benutzerdefinierter Teilbereich (X/Y Ratio)</option>
-					</select>
+					<h3>Entzerrte 2D-Vorschau (Ungestreckt) & Aktive Zonen</h3>
 
-					<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px">
-						<div>
-							<label>Aktiver X-Start (0.0 – 1.0)</label>
-							<input
-								id="activeX0"
-								type="number"
-								step="0.05"
-								min="0"
-								max="0.95"
-								value="0.0"
-								onchange="
-									drawCalib();
-									updatePreview();
-								"
-							/>
+					<label style="margin-top: 0"
+						>Ungestreckte 2D Bird's-Eye Vorschau (Tisch 1 Links & Tisch 2 Rechts):</label
+					>
+					<div class="preview-img-box">
+						<img id="warpPreviewImg" alt="2D Vorschau" />
+					</div>
+
+					<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 10px">
+						<div
+							style="
+								background: #0f172a;
+								padding: 10px;
+								border-radius: 8px;
+								border-left: 3px solid #ef4444;
+							"
+						>
+							<label style="margin-top: 0; color: #fca5a5">Aktive Zone Tisch 1 (Links / Red)</label>
+							<select id="activeHalfMode1" onchange="onHalfModeChange(1)">
+								<option value="full">Ganzer Tisch 1 aktiv (0% – 100%)</option>
+								<option value="left_half">Nur Linke Hälfte von Tisch 1 (0% – 50%)</option>
+								<option value="right_half">Nur Rechte Hälfte von Tisch 1 (50% – 100%)</option>
+								<option value="custom_ratio">Benutzerdefiniert (X-Ratio)</option>
+							</select>
+							<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px">
+								<div>
+									<label>T1 X-Start</label>
+									<input
+										id="t1ActiveX0"
+										type="number"
+										step="0.05"
+										min="0"
+										max="0.95"
+										value="0.0"
+										onchange="
+											drawCalib();
+											updatePreview();
+										"
+									/>
+								</div>
+								<div>
+									<label>T1 X-Ende</label>
+									<input
+										id="t1ActiveX1"
+										type="number"
+										step="0.05"
+										min="0.05"
+										max="1.0"
+										value="1.0"
+										onchange="
+											drawCalib();
+											updatePreview();
+										"
+									/>
+								</div>
+							</div>
 						</div>
-						<div>
-							<label>Aktiver X-Ende (0.05 – 1.0)</label>
-							<input
-								id="activeX1"
-								type="number"
-								step="0.05"
-								min="0.05"
-								max="1.0"
-								value="0.50"
-								onchange="
-									drawCalib();
-									updatePreview();
-								"
-							/>
+
+						<div
+							style="
+								background: #0f172a;
+								padding: 10px;
+								border-radius: 8px;
+								border-left: 3px solid #3b82f6;
+							"
+						>
+							<label style="margin-top: 0; color: #93c5fd">Aktive Zone Tisch 2 (Rechts / Blue)</label>
+							<select id="activeHalfMode2" onchange="onHalfModeChange(2)">
+								<option value="full">Ganzer Tisch 2 aktiv (0% – 100%)</option>
+								<option value="left_half">Nur Linke Hälfte von Tisch 2 (0% – 50%)</option>
+								<option value="right_half">Nur Rechte Hälfte von Tisch 2 (50% – 100%)</option>
+								<option value="custom_ratio">Benutzerdefiniert (X-Ratio)</option>
+							</select>
+							<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px">
+								<div>
+									<label>T2 X-Start</label>
+									<input
+										id="t2ActiveX0"
+										type="number"
+										step="0.05"
+										min="0"
+										max="0.95"
+										value="0.0"
+										onchange="
+											drawCalib();
+											updatePreview();
+										"
+									/>
+								</div>
+								<div>
+									<label>T2 X-Ende</label>
+									<input
+										id="t2ActiveX1"
+										type="number"
+										step="0.05"
+										min="0.05"
+										max="1.0"
+										value="1.0"
+										onchange="
+											drawCalib();
+											updatePreview();
+										"
+									/>
+								</div>
+							</div>
 						</div>
 					</div>
 
-					<label style="margin-top: 14px">Live 2D Bird's-Eye Vorschau (Ungenutzte Hälfte abgedunkelt):</label>
-					<img
-						id="warpPreviewImg"
-						style="
-							width: 100%;
-							border-radius: 8px;
-							border: 1px solid #475569;
-							margin-top: 6px;
-							background: #020617;
-							min-height: 160px;
-						"
-					/>
-
-					<h3 style="margin-top: 16px">4 Tischecken (Pixelkoordinaten):</h3>
+					<h3 style="margin-top: 14px" id="coordTableTitle">
+						4 Ecken des aktuell gewählten Bereichs (Pixel):
+					</h3>
 					<table>
 						<thead>
 							<tr>
@@ -395,7 +519,7 @@
 					<h3>🔍 Einheitlicher Roboter Auto-Zoom (Beide Team-Tische identisch)</h3>
 					<label>
 						<input id="autoZoomEnabled" type="checkbox" checked style="width: auto; margin-right: 8px" />
-						Automatischen Roboter-Verfolgungs-Zoom für beide Team-Tische aktivieren
+						Automatischen Roboter-Verfolgungs-Zoom für Tisch 1 (Links) & Tisch 2 (Rechts) aktivieren
 					</label>
 
 					<label
@@ -412,7 +536,7 @@
 						oninput="document.getElementById('zUnifiedVal').textContent = this.value + 'x'"
 					/>
 
-					<label>Zoom-Out / Idle-Faktor (wenn Roboter pausiert/in Base): <b id="zIdleVal">1.0x</b></label>
+					<label>Zoom-Out / Idle-Faktor (wenn kein Roboter aktiv): <b id="zIdleVal">1.0x</b></label>
 					<input
 						id="zoomIdle"
 						type="range"
@@ -423,14 +547,12 @@
 						oninput="document.getElementById('zIdleVal').textContent = this.value + 'x'"
 					/>
 
-					<label>1:1 Seitenverhältnis Rand-Modus (Verhindert schwarze Ränder beim Herauszoomen)</label>
+					<label>1:1 Seitenverhältnis Rand-Modus (Verhindert schwarze Ränder & Verzerrung)</label>
 					<select id="borderFillMode">
 						<option value="cover_crop">
-							Dynamischer 1:1 Halbtisch-Cover-Crop (Garantiert 0 schwarze Ränder)
+							Dynamischer 1:1 Cover-Crop (Garantiert 0 Ränder & 0 Stretching)
 						</option>
-						<option value="blurred_backdrop">
-							Ambient Blurred Backdrop (Unscharfer Hintergrund bei Extrem-Winkeln)
-						</option>
+						<option value="blurred_backdrop">Ambient Blurred Backdrop (Unscharfer Hintergrund)</option>
 					</select>
 
 					<button
@@ -443,24 +565,38 @@
 				</div>
 
 				<div class="card">
-					<h3>Live Vorschau: Beide Team-Tische (Ohne Heatmap / Ohne HUD)</h3>
+					<h3>Live Vorschau: Beide Team-Tische (Tisch 1 Links & Tisch 2 Rechts)</h3>
 					<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px">
 						<div>
 							<div style="font-size: 12px; color: #fca5a5; font-weight: 700; margin-bottom: 4px">
-								Red Team Tisch (/video-stream/red-team)
+								Red Team – Tisch 1 Links (/video-stream/red-team)
 							</div>
 							<img
 								src="/video-stream/red-team"
-								style="width: 100%; aspect-ratio: 1/1; border-radius: 8px; border: 3px solid #ed1c24"
+								style="
+									width: 100%;
+									aspect-ratio: 1/1;
+									object-fit: contain;
+									background: #020617;
+									border-radius: 8px;
+									border: 3px solid #ed1c24;
+								"
 							/>
 						</div>
 						<div>
 							<div style="font-size: 12px; color: #93c5fd; font-weight: 700; margin-bottom: 4px">
-								Blue Team Tisch (/video-stream/blue-team)
+								Blue Team – Tisch 2 Rechts (/video-stream/blue-team)
 							</div>
 							<img
 								src="/video-stream/blue-team"
-								style="width: 100%; aspect-ratio: 1/1; border-radius: 8px; border: 3px solid #0066b3"
+								style="
+									width: 100%;
+									aspect-ratio: 1/1;
+									object-fit: contain;
+									background: #020617;
+									border-radius: 8px;
+									border: 3px solid #0066b3;
+								"
 							/>
 						</div>
 					</div>
@@ -468,16 +604,14 @@
 			</div>
 		</div>
 
-		<!-- TAB 3: HEATMAPS & RUN DOCUMENTATION -->
+		<!-- TAB 3: HEATMAPS & RUN DOCUMENTATION (NON-STRETCHED) -->
 		<div id="tabHeatmap" class="tab-panel">
 			<div class="grid-2">
 				<div class="card">
-					<h3>🔥 Live 2D Bird's-Eye Heatmap & Autonome Fahrspuren</h3>
-					<img
-						id="minimapLiveImg"
-						src="/minimap_feed"
-						style="width: 100%; border-radius: 8px; border: 1px solid #475569"
-					/>
+					<h3>🔥 Live 2D Bird's-Eye Heatmap & Autonome Fahrspuren (Ungestreckt, Tisch 1 & Tisch 2)</h3>
+					<div class="preview-img-box">
+						<img id="minimapLiveImg" src="/minimap_feed" alt="Live Dual-Table Minimap" />
+					</div>
 					<div style="display: flex; gap: 10px; margin-top: 12px; flex-wrap: wrap">
 						<a class="btn accent" href="/api/backend/export/heatmap.png" download="fll_heatmap.png"
 							>📥 Heatmap PNG herunterladen</a
@@ -493,10 +627,11 @@
 				</div>
 
 				<div class="card">
-					<h3>📋 Aufgezeichnete Sorties / Autonome Läufe (Run-Dokumentation)</h3>
+					<h3>📋 Aufgezeichnete Sorties / Autonome Läufe (Beide Tische)</h3>
 					<table>
 						<thead>
 							<tr>
+								<th>Tisch</th>
 								<th>Run #</th>
 								<th>Fahrzeit (s)</th>
 								<th>Distanz (mm)</th>
@@ -506,7 +641,7 @@
 						</thead>
 						<tbody id="runsTableBody">
 							<tr>
-								<td colspan="5" style="color: #94a3b8">Noch keine Läufe aufgezeichnet.</td>
+								<td colspan="6" style="color: #94a3b8">Noch keine Läufe aufgezeichnet.</td>
 							</tr>
 						</tbody>
 					</table>
@@ -514,22 +649,22 @@
 			</div>
 		</div>
 
-		<!-- TAB 4: AI TRACKER & HAND-VETO CONFIG -->
+		<!-- TAB 4: HYBRID MOTION + AI TRACKER & HAND-VETO CONFIG -->
 		<div id="tabTracker" class="tab-panel">
 			<div class="grid-2">
 				<div class="card">
-					<h3>⚙️ Hand-Veto State Machine & Kalman-Filter Parameter</h3>
+					<h3>⚙️ Hybrid Motion+KI Tracker, Sticky Lock-On & Hand-Veto Parameter</h3>
 					<label>Hand-Veto Sicherheitsradius um Roboter (mm):</label>
 					<input id="handRadiusMm" type="number" value="180" min="50" max="500" />
 
 					<label>Maximale physikalische Roboter-Geschwindigkeit (mm/s, Kinematik-Gate):</label>
-					<input id="maxSpeedMmS" type="number" value="1200" min="300" max="3000" />
+					<input id="maxSpeedMmS" type="number" value="1600" min="300" max="3500" />
 
 					<label>Stillstands-Rauschfilter / Micro-Jitter Gate (mm):</label>
-					<input id="noiseGateMm" type="number" step="0.5" value="4.0" min="0" max="25" />
+					<input id="noiseGateMm" type="number" step="0.5" value="3.0" min="0" max="25" />
 
 					<label>YOLO TensorRT Confidence-Schwellenwert (0.15 – 0.90):</label>
-					<input id="confThresh" type="number" step="0.05" value="0.40" min="0.15" max="0.90" />
+					<input id="confThresh" type="number" step="0.05" value="0.25" min="0.15" max="0.90" />
 
 					<button
 						class="btn primary"
@@ -541,7 +676,7 @@
 				</div>
 
 				<div class="card">
-					<h3>📊 Live Engine & GPU Telemetrie</h3>
+					<h3>📊 Live Engine & Dual-Table Telemetrie</h3>
 					<pre
 						id="backendTelemetryPre"
 						style="
@@ -574,70 +709,151 @@ Lade Telemetrie...</pre
 				el.style.color = color;
 			}
 
-			// --- TAB 1: Interactive Selection-Box & Active Half Calibration ---
+			// --- TAB 1: Double-Table & Both Single Tables Interactive Calibration ---
 			const canvas = document.getElementById("calibCanvas");
 			const ctx = canvas.getContext("2d");
 			let bgImg = new Image();
 			let cropMode = "rect";
-			let corners = [
-				[210, 140],
-				[1710, 140],
-				[1860, 960],
-				[60, 960],
+			let editTarget = "double"; // 'double', 'table1', or 'table2'
+
+			let doubleCorners = [
+				[60, 140],
+				[1860, 140],
+				[1900, 960],
+				[20, 960],
+			];
+			let table1Corners = [
+				[60, 140],
+				[960, 140],
+				[960, 960],
+				[20, 960],
+			];
+			let table2Corners = [
+				[960, 140],
+				[1860, 140],
+				[1900, 960],
+				[960, 960],
 			];
 			let dragState = null;
+
+			function getActiveTargetArray() {
+				if (editTarget === "double") return doubleCorners;
+				if (editTarget === "table1") return table1Corners;
+				return table2Corners;
+			}
+
+			function setActiveTargetArray(arr) {
+				if (editTarget === "double") {
+					doubleCorners = arr;
+					autoSplitLocalDoubleTable();
+				} else if (editTarget === "table1") {
+					table1Corners = arr;
+				} else {
+					table2Corners = arr;
+				}
+			}
+
+			function autoSplitLocalDoubleTable() {
+				const tl = doubleCorners[0],
+					tr = doubleCorners[1],
+					br = doubleCorners[2],
+					bl = doubleCorners[3];
+				const midTop = [0.5 * (tl[0] + tr[0]), 0.5 * (tl[1] + tr[1])];
+				const midBot = [0.5 * (bl[0] + br[0]), 0.5 * (bl[1] + br[1])];
+				table1Corners = [
+					[tl[0], tl[1]],
+					[midTop[0], midTop[1]],
+					[midBot[0], midBot[1]],
+					[bl[0], bl[1]],
+				];
+				table2Corners = [
+					[midTop[0], midTop[1]],
+					[tr[0], tr[1]],
+					[br[0], br[1]],
+					[midBot[0], midBot[1]],
+				];
+			}
+
+			function setEditTarget(target) {
+				editTarget = target;
+				document.getElementById("targetDoubleBtn").className = target === "double" ? "btn dbl-active" : "btn";
+				document.getElementById("targetT1Btn").className = target === "table1" ? "btn red-active" : "btn";
+				document.getElementById("targetT2Btn").className = target === "table2" ? "btn blue-active" : "btn";
+				const titles = {
+					double: "4 Ecken: Gesamter Doppeltisch (Pixel):",
+					table1: "4 Ecken: Einzeltisch 1 (Links / Red Team):",
+					table2: "4 Ecken: Einzeltisch 2 (Rechts / Blue Team):",
+				};
+				document.getElementById("coordTableTitle").textContent = titles[target];
+				syncToInputs();
+				drawCalib();
+			}
 
 			function setCropMode(m) {
 				cropMode = m;
 				document.getElementById("modeRectBtn").className = m === "rect" ? "btn warn" : "btn";
 				document.getElementById("modeQuadBtn").className = m === "quad" ? "btn warn" : "btn";
 				if (m === "rect") {
-					const xs = corners.map((p) => p[0]),
-						ys = corners.map((p) => p[1]);
+					const c = getActiveTargetArray();
+					const xs = c.map((p) => p[0]),
+						ys = c.map((p) => p[1]);
 					const minX = Math.min(...xs),
 						maxX = Math.max(...xs);
 					const minY = Math.min(...ys),
 						maxY = Math.max(...ys);
-					corners = [
+					setActiveTargetArray([
 						[minX, minY],
 						[maxX, minY],
 						[maxX, maxY],
 						[minX, maxY],
-					];
+					]);
 					syncToInputs();
 					drawCalib();
 					updatePreview();
 				}
 			}
 
-			function onHalfModeChange() {
-				const mode = document.getElementById("activeHalfMode").value;
+			async function splitDoubleTableNow() {
+				autoSplitLocalDoubleTable();
+				syncToInputs();
+				drawCalib();
+				updatePreview();
+				toast("✂️ Doppeltisch mittig in Tisch 1 (Links) & Tisch 2 (Rechts) aufgeteilt!", "#38bdf8");
+			}
+
+			function onHalfModeChange(tableNum) {
+				const mode = document.getElementById("activeHalfMode" + tableNum).value;
+				const x0El = document.getElementById("t" + tableNum + "ActiveX0");
+				const x1El = document.getElementById("t" + tableNum + "ActiveX1");
 				if (mode === "left_half") {
-					document.getElementById("activeX0").value = 0.0;
-					document.getElementById("activeX1").value = 0.5;
+					x0El.value = 0.0;
+					x1El.value = 0.5;
 				} else if (mode === "right_half") {
-					document.getElementById("activeX0").value = 0.5;
-					document.getElementById("activeX1").value = 1.0;
+					x0El.value = 0.5;
+					x1El.value = 1.0;
 				} else if (mode === "full") {
-					document.getElementById("activeX0").value = 0.0;
-					document.getElementById("activeX1").value = 1.0;
+					x0El.value = 0.0;
+					x1El.value = 1.0;
 				}
 				drawCalib();
 				updatePreview();
 			}
 
 			function syncToInputs() {
+				const c = getActiveTargetArray();
 				for (let i = 0; i < 4; i++) {
-					document.getElementById("cx" + i).value = Math.round(corners[i][0]);
-					document.getElementById("cy" + i).value = Math.round(corners[i][1]);
+					document.getElementById("cx" + i).value = Math.round(c[i][0]);
+					document.getElementById("cy" + i).value = Math.round(c[i][1]);
 				}
 			}
 
 			function syncFromInputs() {
+				const c = getActiveTargetArray().map((p) => [...p]);
 				for (let i = 0; i < 4; i++) {
-					corners[i][0] = parseFloat(document.getElementById("cx" + i).value) || 0;
-					corners[i][1] = parseFloat(document.getElementById("cy" + i).value) || 0;
+					c[i][0] = parseFloat(document.getElementById("cx" + i).value) || 0;
+					c[i][1] = parseFloat(document.getElementById("cy" + i).value) || 0;
 				}
+				setActiveTargetArray(c);
 				drawCalib();
 				updatePreview();
 			}
@@ -666,14 +882,15 @@ Lade Telemetrie...</pre
 
 			canvas.addEventListener("mousedown", (evt) => {
 				const pt = getMousePt(evt);
+				const activeArr = getActiveTargetArray();
 				for (let i = 0; i < 4; i++) {
-					if (Math.hypot(pt[0] - corners[i][0], pt[1] - corners[i][1]) < 24) {
-						dragState = { type: "corner", idx: i, orig: JSON.parse(JSON.stringify(corners)) };
+					if (Math.hypot(pt[0] - activeArr[i][0], pt[1] - activeArr[i][1]) < 26) {
+						dragState = { type: "corner", idx: i, orig: JSON.parse(JSON.stringify(activeArr)) };
 						return;
 					}
 				}
-				if (ptInQuad(pt, corners)) {
-					dragState = { type: "move", start: pt, orig: JSON.parse(JSON.stringify(corners)) };
+				if (ptInQuad(pt, activeArr)) {
+					dragState = { type: "move", start: pt, orig: JSON.parse(JSON.stringify(activeArr)) };
 				} else if (cropMode === "rect") {
 					dragState = { type: "new_rect", start: pt };
 				}
@@ -682,16 +899,17 @@ Lade Telemetrie...</pre
 			window.addEventListener("mousemove", (evt) => {
 				if (!dragState) return;
 				const pt = getMousePt(evt);
+				let nextArr = getActiveTargetArray().map((p) => [...p]);
 				if (dragState.type === "corner") {
 					if (cropMode === "quad") {
-						corners[dragState.idx] = pt;
+						nextArr[dragState.idx] = pt;
 					} else {
 						const opp = dragState.orig[(dragState.idx + 2) % 4];
 						const x1 = Math.min(pt[0], opp[0]),
 							x2 = Math.max(pt[0], opp[0]);
 						const y1 = Math.min(pt[1], opp[1]),
 							y2 = Math.max(pt[1], opp[1]);
-						corners = [
+						nextArr = [
 							[x1, y1],
 							[x2, y1],
 							[x2, y2],
@@ -701,20 +919,21 @@ Lade Telemetrie...</pre
 				} else if (dragState.type === "move") {
 					const dx = pt[0] - dragState.start[0],
 						dy = pt[1] - dragState.start[1];
-					corners = dragState.orig.map((p) => [p[0] + dx, p[1] + dy]);
+					nextArr = dragState.orig.map((p) => [p[0] + dx, p[1] + dy]);
 				} else if (dragState.type === "new_rect") {
 					const s = dragState.start;
 					const x1 = Math.min(pt[0], s[0]),
 						x2 = Math.max(pt[0], s[0]);
 					const y1 = Math.min(pt[1], s[1]),
 						y2 = Math.max(pt[1], s[1]);
-					corners = [
+					nextArr = [
 						[x1, y1],
 						[x2, y1],
 						[x2, y2],
 						[x1, y2],
 					];
 				}
+				setActiveTargetArray(nextArr);
 				syncToInputs();
 				drawCalib();
 			});
@@ -730,43 +949,17 @@ Lade Telemetrie...</pre
 				return [pA[0] + (pB[0] - pA[0]) * t, pA[1] + (pB[1] - pA[1]) * t];
 			}
 
-			function drawCalib() {
-				ctx.clearRect(0, 0, canvas.width, canvas.height);
-				if (bgImg.complete && bgImg.naturalWidth > 0) {
-					ctx.drawImage(bgImg, 0, 0, canvas.width, canvas.height);
-				}
-				// Darken outside full table
+			function drawTableOverlay(quad, rx0, rx1, strokeCol, fillRGBA, labelText) {
+				const actTL = lerpPt(quad[0], quad[1], rx0);
+				const actTR = lerpPt(quad[0], quad[1], rx1);
+				const actBR = lerpPt(quad[3], quad[2], rx1);
+				const actBL = lerpPt(quad[3], quad[2], rx0);
+
 				ctx.save();
-				ctx.fillStyle = "rgba(2, 6, 23, 0.65)";
-				ctx.beginPath();
-				ctx.rect(0, 0, canvas.width, canvas.height);
-				ctx.moveTo(corners[0][0], corners[0][1]);
-				for (let i = 1; i < 4; i++) ctx.lineTo(corners[i][0], corners[i][1]);
-				ctx.closePath();
-				ctx.fill("evenodd");
-				ctx.restore();
-
-				// Highlight ACTIVE half in green/cyan and UNUSED half in red shade
-				const rx0 = parseFloat(document.getElementById("activeX0").value) || 0.0;
-				const rx1 = parseFloat(document.getElementById("activeX1").value) || 0.5;
-				const actTL = lerpPt(corners[0], corners[1], rx0);
-				const actTR = lerpPt(corners[0], corners[1], rx1);
-				const actBR = lerpPt(corners[3], corners[2], rx1);
-				const actBL = lerpPt(corners[3], corners[2], rx0);
-
-				// Shade full table lightly red (excluded half)
-				ctx.save();
-				ctx.fillStyle = "rgba(239, 68, 68, 0.28)";
-				ctx.beginPath();
-				ctx.moveTo(corners[0][0], corners[0][1]);
-				for (let i = 1; i < 4; i++) ctx.lineTo(corners[i][0], corners[i][1]);
-				ctx.closePath();
-				ctx.fill();
-
-				// Draw active half in bright green/cyan border
-				ctx.fillStyle = "rgba(16, 185, 129, 0.15)";
-				ctx.strokeStyle = "#10b981";
-				ctx.lineWidth = 4;
+				// Active region fill & border
+				ctx.fillStyle = fillRGBA;
+				ctx.strokeStyle = strokeCol;
+				ctx.lineWidth = 3;
 				ctx.beginPath();
 				ctx.moveTo(actTL[0], actTL[1]);
 				ctx.lineTo(actTR[0], actTR[1]);
@@ -775,41 +968,124 @@ Lade Telemetrie...</pre
 				ctx.closePath();
 				ctx.fill();
 				ctx.stroke();
-				ctx.restore();
 
-				// Draw outer table border & handles
-				ctx.strokeStyle = "#38bdf8";
+				// Full single-table dashed outline
+				ctx.setLineDash([6, 4]);
 				ctx.lineWidth = 2;
 				ctx.beginPath();
-				ctx.moveTo(corners[0][0], corners[0][1]);
-				for (let i = 1; i < 4; i++) ctx.lineTo(corners[i][0], corners[i][1]);
+				ctx.moveTo(quad[0][0], quad[0][1]);
+				for (let i = 1; i < 4; i++) ctx.lineTo(quad[i][0], quad[i][1]);
+				ctx.closePath();
+				ctx.stroke();
+				ctx.setLineDash([]);
+
+				// Label badge
+				const cx = 0.25 * (quad[0][0] + quad[1][0] + quad[2][0] + quad[3][0]);
+				const cy = 0.25 * (quad[0][1] + quad[1][1] + quad[2][1] + quad[3][1]);
+				ctx.fillStyle = "rgba(15, 23, 42, 0.85)";
+				ctx.fillRect(cx - 95, cy - 16, 190, 32);
+				ctx.fillStyle = strokeCol;
+				ctx.font = "bold 15px sans-serif";
+				ctx.textAlign = "center";
+				ctx.textBaseline = "middle";
+				ctx.fillText(labelText, cx, cy);
+				ctx.restore();
+			}
+
+			function drawCalib() {
+				ctx.clearRect(0, 0, canvas.width, canvas.height);
+				if (bgImg.complete && bgImg.naturalWidth > 0) {
+					ctx.drawImage(bgImg, 0, 0, canvas.width, canvas.height);
+				}
+
+				const t1x0 = parseFloat(document.getElementById("t1ActiveX0").value) || 0.0;
+				const t1x1 = parseFloat(document.getElementById("t1ActiveX1").value) || 1.0;
+				const t2x0 = parseFloat(document.getElementById("t2ActiveX0").value) || 0.0;
+				const t2x1 = parseFloat(document.getElementById("t2ActiveX1").value) || 1.0;
+
+				// Draw Single Table 1 (Left / Red Team) and Single Table 2 (Right / Blue Team)
+				drawTableOverlay(
+					table1Corners,
+					t1x0,
+					t1x1,
+					"#ef4444",
+					"rgba(239, 68, 68, 0.16)",
+					"Tisch 1 (Links / Red)",
+				);
+				drawTableOverlay(
+					table2Corners,
+					t2x0,
+					t2x1,
+					"#3b82f6",
+					"rgba(59, 130, 246, 0.16)",
+					"Tisch 2 (Rechts / Blue)",
+				);
+
+				// Draw Double-Table outer frame in amber dashed
+				ctx.save();
+				ctx.strokeStyle = "#f59e0b";
+				ctx.lineWidth = editTarget === "double" ? 3 : 1.5;
+				ctx.setLineDash([10, 6]);
+				ctx.beginPath();
+				ctx.moveTo(doubleCorners[0][0], doubleCorners[0][1]);
+				for (let i = 1; i < 4; i++) ctx.lineTo(doubleCorners[i][0], doubleCorners[i][1]);
+				ctx.closePath();
+				ctx.stroke();
+				ctx.restore();
+
+				// Draw draggable handles for the currently selected target
+				const activeArr = getActiveTargetArray();
+				const handleCols = {
+					double: "#f59e0b",
+					table1: "#ef4444",
+					table2: "#3b82f6",
+				};
+				const hCol = handleCols[editTarget];
+				const labels = ["TL", "TR", "BR", "BL"];
+
+				ctx.save();
+				ctx.strokeStyle = "#ffffff";
+				ctx.lineWidth = 3;
+				ctx.beginPath();
+				ctx.moveTo(activeArr[0][0], activeArr[0][1]);
+				for (let i = 1; i < 4; i++) ctx.lineTo(activeArr[i][0], activeArr[i][1]);
 				ctx.closePath();
 				ctx.stroke();
 
-				const labels = ["TL", "TR", "BR", "BL"];
-				const cols = ["#38bdf8", "#34d399", "#f59e0b", "#f43f5e"];
 				for (let i = 0; i < 4; i++) {
-					ctx.fillStyle = cols[i];
+					ctx.fillStyle = hCol;
 					ctx.beginPath();
-					ctx.arc(corners[i][0], corners[i][1], 14, 0, Math.PI * 2);
+					ctx.arc(activeArr[i][0], activeArr[i][1], 15, 0, Math.PI * 2);
 					ctx.fill();
-					ctx.fillStyle = "#0f172a";
+					ctx.strokeStyle = "#ffffff";
+					ctx.lineWidth = 2;
+					ctx.stroke();
+					ctx.fillStyle = "#ffffff";
 					ctx.font = "bold 11px sans-serif";
 					ctx.textAlign = "center";
 					ctx.textBaseline = "middle";
-					ctx.fillText(labels[i], corners[i][0], corners[i][1]);
+					ctx.fillText(labels[i], activeArr[i][0], activeArr[i][1]);
 				}
+				ctx.restore();
 			}
 
 			async function reloadCalibrationFrame() {
 				const res = await fetch("/api/calibration/state");
 				if (res.ok) {
 					const st = await res.json();
-					corners = st.corners_px;
-					document.getElementById("activeHalfMode").value = st.active_half_mode || "left_half";
+					if (st.double_table_corners_px) doubleCorners = st.double_table_corners_px;
+					if (st.corners_px) table1Corners = st.corners_px;
+					if (st.table2_corners_px) table2Corners = st.table2_corners_px;
+
+					document.getElementById("activeHalfMode1").value = st.active_half_mode || "full";
 					if (st.active_x_ratio) {
-						document.getElementById("activeX0").value = st.active_x_ratio[0];
-						document.getElementById("activeX1").value = st.active_x_ratio[1];
+						document.getElementById("t1ActiveX0").value = st.active_x_ratio[0];
+						document.getElementById("t1ActiveX1").value = st.active_x_ratio[1];
+					}
+					document.getElementById("activeHalfMode2").value = st.table2_active_half_mode || "full";
+					if (st.table2_active_x_ratio) {
+						document.getElementById("t2ActiveX0").value = st.table2_active_x_ratio[0];
+						document.getElementById("t2ActiveX1").value = st.table2_active_x_ratio[1];
 					}
 					if (st.streams && st.streams.auto_zoom) {
 						const az = st.streams.auto_zoom;
@@ -833,17 +1109,19 @@ Lade Telemetrie...</pre
 			}
 
 			async function autoDetectBorders() {
-				toast("Suche Tischkanten...", "#f59e0b");
+				toast("Suche Doppeltisch-Kanten...", "#f59e0b");
 				const res = await fetch("/api/calibration/auto_detect", { method: "POST" });
 				if (res.ok) {
 					const data = await res.json();
-					corners = data.corners_px;
+					if (data.double_table_corners_px) doubleCorners = data.double_table_corners_px;
+					if (data.corners_px) table1Corners = data.corners_px;
+					if (data.table2_corners_px) table2Corners = data.table2_corners_px;
 					setCropMode("quad");
 					syncToInputs();
 					drawCalib();
 					updatePreview();
 					toast(
-						data.detected ? "Tischkanten automatisch erkannt!" : "Bitte manuell feinjustieren",
+						data.detected ? "Doppeltisch & beide Einzeltische erkannt!" : "Bitte manuell feinjustieren",
 						"#34d399",
 					);
 				}
@@ -851,13 +1129,21 @@ Lade Telemetrie...</pre
 
 			async function updatePreview() {
 				const payload = {
-					corners_px: corners,
-					active_half_mode: document.getElementById("activeHalfMode").value,
+					double_table_corners_px: doubleCorners,
+					corners_px: table1Corners,
+					table2_corners_px: table2Corners,
+					active_half_mode: document.getElementById("activeHalfMode1").value,
 					active_x_ratio: [
-						parseFloat(document.getElementById("activeX0").value) || 0.0,
-						parseFloat(document.getElementById("activeX1").value) || 0.5,
+						parseFloat(document.getElementById("t1ActiveX0").value) || 0.0,
+						parseFloat(document.getElementById("t1ActiveX1").value) || 1.0,
 					],
 					active_y_ratio: [0.0, 1.0],
+					table2_active_half_mode: document.getElementById("activeHalfMode2").value,
+					table2_active_x_ratio: [
+						parseFloat(document.getElementById("t2ActiveX0").value) || 0.0,
+						parseFloat(document.getElementById("t2ActiveX1").value) || 1.0,
+					],
+					table2_active_y_ratio: [0.0, 1.0],
 				};
 				const res = await fetch("/api/calibration/preview", {
 					method: "POST",
@@ -872,21 +1158,29 @@ Lade Telemetrie...</pre
 
 			async function saveTableCalibration() {
 				const payload = {
-					corners_px: corners,
+					double_table_corners_px: doubleCorners,
+					corners_px: table1Corners,
+					table2_corners_px: table2Corners,
 					auto_detect_borders: false,
-					active_half_mode: document.getElementById("activeHalfMode").value,
+					active_half_mode: document.getElementById("activeHalfMode1").value,
 					active_x_ratio: [
-						parseFloat(document.getElementById("activeX0").value) || 0.0,
-						parseFloat(document.getElementById("activeX1").value) || 0.5,
+						parseFloat(document.getElementById("t1ActiveX0").value) || 0.0,
+						parseFloat(document.getElementById("t1ActiveX1").value) || 1.0,
 					],
 					active_y_ratio: [0.0, 1.0],
+					table2_active_half_mode: document.getElementById("activeHalfMode2").value,
+					table2_active_x_ratio: [
+						parseFloat(document.getElementById("t2ActiveX0").value) || 0.0,
+						parseFloat(document.getElementById("t2ActiveX1").value) || 1.0,
+					],
+					table2_active_y_ratio: [0.0, 1.0],
 				};
 				const res = await fetch("/api/calibration/save", {
 					method: "POST",
 					headers: { "Content-Type": "application/json" },
 					body: JSON.stringify(payload),
 				});
-				if (res.ok) toast("✅ Tisch- & Halbtisch-Kalibrierung gespeichert!");
+				if (res.ok) toast("✅ Doppeltisch, Tisch 1 (Links) & Tisch 2 (Rechts) gespeichert!");
 			}
 
 			async function saveZoomSettings() {
@@ -908,21 +1202,21 @@ Lade Telemetrie...</pre
 			async function saveTrackerSettings() {
 				const payload = {
 					proximity_radius_mm: parseFloat(document.getElementById("handRadiusMm").value) || 180.0,
-					max_robot_speed_mm_s: parseFloat(document.getElementById("maxSpeedMmS").value) || 1200.0,
-					stationary_noise_gate_mm: parseFloat(document.getElementById("noiseGateMm").value) || 4.0,
-					conf_threshold: parseFloat(document.getElementById("confThresh").value) || 0.4,
+					max_robot_speed_mm_s: parseFloat(document.getElementById("maxSpeedMmS").value) || 1600.0,
+					stationary_noise_gate_mm: parseFloat(document.getElementById("noiseGateMm").value) || 3.0,
+					conf_threshold: parseFloat(document.getElementById("confThresh").value) || 0.25,
 				};
 				const res = await fetch("/api/backend/tracker_config", {
 					method: "POST",
 					headers: { "Content-Type": "application/json" },
 					body: JSON.stringify(payload),
 				});
-				if (res.ok) toast("✅ KI-Tracker Parameter live aktualisiert!");
+				if (res.ok) toast("✅ Hybrid-Tracker Parameter live aktualisiert!");
 			}
 
 			async function resetTrackerRuns() {
 				const res = await fetch("/api/backend/reset_runs", { method: "POST" });
-				if (res.ok) toast("🗑️ Heatmap & Läufe zurückgesetzt!");
+				if (res.ok) toast("🗑️ Heatmap & Läufe beider Tische zurückgesetzt!");
 			}
 
 			setInterval(async () => {
@@ -938,6 +1232,7 @@ Lade Telemetrie...</pre
 							.map(
 								(r) => `
                         <tr>
+                            <td><b style="color:${r.table_id === 2 ? "#60a5fa" : "#f87171"};">Tisch ${r.table_id || 1}</b></td>
                             <td><b>Run #${r.run_id}</b></td>
                             <td>${r.duration_s} s</td>
                             <td>${r.distance_mm} mm</td>
@@ -1004,7 +1299,7 @@ Lade Telemetrie...</pre
 					if (res.ok && data.ok) {
 						txt.style.color = "#34d399";
 						txt.textContent = "✅ Bild-Check erfolgreich! Quelle liefert ein gültiges Live-Bild.";
-						meta.textContent = `Quelle: ${data.meta.source} | Auflösung: ${data.meta.width}×${data.meta.height} px | FPS: ${data.meta.fps}`;
+						meta.textContent = `Quelle: ${data.meta.source} | Auflösung: ${data.meta.width}×${data.meta.height} px | Native FPS: ${data.meta.fps}`;
 						if (data.preview_data_url) {
 							img.src = data.preview_data_url;
 							img.style.display = "block";
@@ -1042,7 +1337,8 @@ Lade Telemetrie...</pre
 				const data = await res.json();
 				if (res.ok && data.ok) {
 					txt.style.color = "#34d399";
-					txt.textContent = "✅ Video-Quelle geprüft, in config.yaml gespeichert & live umgeschaltet!";
+					txt.textContent =
+						"✅ Video-Quelle geprüft, in config.yaml gespeichert & live in Original-Geschwindigkeit aktiviert!";
 					meta.textContent = `Aktive Quelle: ${data.meta.source} (${data.meta.width}×${data.meta.height} @ ${data.meta.fps} FPS)`;
 					if (data.preview_data_url) {
 						img.src = data.preview_data_url;

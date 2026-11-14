@@ -14,8 +14,6 @@ ENV PYTHONUNBUFFERED=1
 
 # Target NVIDIA GB10 Blackwell GPU Architecture (SM 12.0 / 12.1) & Grace ARM64 CPU cores
 ENV TORCH_CUDA_ARCH_LIST="12.0;12.1"
-# Target NVIDIA GB10 Blackwell GPU Architecture (SM 12.0 / 12.1) & Grace ARM64 CPU cores
-ENV TORCH_CUDA_ARCH_LIST="12.0;12.1"
 ENV CUDA_MODULE_LOADING=LAZY
 ENV OMP_NUM_THREADS=8
 ENV MKL_NUM_THREADS=8
@@ -39,11 +37,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Install Python packages without overwriting NGC's hardware-optimized torch & tensorrt
 COPY requirements.txt /workspace/requirements.txt
-RUN pip install --no-cache-dir --root-user-action=ignore \
-    --extra-index-url https://pypi.ngc.nvidia.com \
+RUN pip install --no-cache-dir --no-deps ultralytics lapx filterpy && \
+    pip install --no-cache-dir \
     opencv-python-headless \
     polars \
-    pyarrow \
     matplotlib \
     pillow \
     psutil \
@@ -51,7 +48,6 @@ RUN pip install --no-cache-dir --root-user-action=ignore \
     requests \
     py-cpuinfo \
     ultralytics-thop \
-    ultralytics-platform \
     pyyaml \
     pydantic \
     fastapi \
@@ -65,8 +61,7 @@ RUN pip install --no-cache-dir --root-user-action=ignore \
     lief \
     polygraphy \
     "nvidia-modelopt[onnx]" \
-    scipy && \
-    pip install --no-cache-dir --root-user-action=ignore --no-deps ultralytics lapx filterpy
+    scipy
 
 # Create required directory structure (including empty training_videos directory)
 RUN mkdir -p /workspace/config \

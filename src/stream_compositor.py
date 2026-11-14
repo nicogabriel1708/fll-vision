@@ -2,8 +2,9 @@
 Multi-Core Parallel Dual Team-Table Auto-Zoom Stream Compositor for FLL-Vision.
 Optimized for NVIDIA DGX Spark (20-core Grace ARM64 CPU):
   - Uses a persistent ThreadPoolExecutor to crop and resize both team streams
-    (Stream 1 = Red Team Table, Stream 2 = Blue Team Table) in parallel.
+    (Stream 1 = Red Team Table 1, Stream 2 = Blue Team Table 2) in parallel.
   - Both streams share 100% identical unified zoom settings (`zoom_factor`, `idle_zoom_factor`).
+  - Strictly preserves aspect ratio (zero image stretching at table borders or zoom levels).
   - Neither stream renders a heatmap or HUD overlay (clean team table views).
 """
 
@@ -37,6 +38,10 @@ class SmoothAutoZoomViewport:
 		self.curr_cy: float = 0.0
 		self.curr_zoom: float = idle_zoom
 		self.frames_since_robot: int = 999
+
+	def reset(self):
+		self.initialized = False
+		self.frames_since_robot = 999
 
 	def step(
 		self,
@@ -86,8 +91,9 @@ class SmoothAutoZoomViewport:
 		border_fill_mode: str = "cover_crop",
 	) -> np.ndarray:
 		"""
-		Extracts a smooth, aspect-ratio-matched viewport around (cx, cy) constrained to the
-		active table region, completely eliminating black side borders on ~1:1 streams.
+		Extracts a smooth, strictly aspect-ratio-preserving viewport around (cx, cy)
+		constrained to the active table region.
+		Guarantees ZERO stretching (`int_w / int_h == self.aspect`) even at frame boundaries.
 		"""
 		if frame is None or frame.size == 0:
 			return np.zeros((self.out_h, self.out_w, 3), dtype=np.uint8)
@@ -98,6 +104,7 @@ class SmoothAutoZoomViewport:
 			act_w = float(max(64, ax2 - ax1))
 			act_h = float(max(64, ay2 - ay1))
 
+			# Fit base viewport to the active single-table dimensions while matching output aspect
 			if (act_w / act_h) >= self.aspect:
 				base_h = act_h
 				base_w = base_h * self.aspect
@@ -108,29 +115,40 @@ class SmoothAutoZoomViewport:
 			crop_w = max(64.0, base_w / max(1.0, zoom))
 			crop_h = max(64.0, base_h / max(1.0, zoom))
 
-			half_w = 0.5 * crop_w
-			half_h = 0.5 * crop_h
+			# Strictly ensure crop_w and crop_h fit inside frame without altering their aspect ratio
+			fit_scale = min(float(fw) / crop_w, float(fh) / crop_h, 1.0)
+			crop_w *= fit_scale
+			crop_h *= fit_scale
 
-			min_cx = max(half_w, float(ax1) + half_w * 0.85)
-			max_cx = min(float(fw) - half_w, float(ax2) - half_w * 0.85)
+			int_w = max(2, min(fw, int(round(crop_w))))
+			int_h = max(2, min(fh, int(round(crop_h))))
+			half_w = 0.5 * int_w
+			half_h = 0.5 * int_h
+
+			# Constrain center within active table bounds first
+			min_cx = float(ax1) + half_w * 0.75
+			max_cx = float(ax2) - half_w * 0.75
 			clamped_cx = (0.5 * (ax1 + ax2)) if (min_cx > max_cx) else float(np.clip(cx, min_cx, max_cx))
 
-			min_cy = max(half_h, float(ay1) + half_h * 0.85)
-			max_cy = min(float(fh) - half_h, float(ay2) - half_h * 0.85)
+			min_cy = float(ay1) + half_h * 0.75
+			max_cy = float(ay2) - half_h * 0.75
 			clamped_cy = (0.5 * (ay1 + ay2)) if (min_cy > max_cy) else float(np.clip(cy, min_cy, max_cy))
 
-			x1 = max(0, min(fw - 2, int(round(clamped_cx - half_w))))
-			y1 = max(0, min(fh - 2, int(round(clamped_cy - half_h))))
-			x2 = max(x1 + 2, min(fw, int(round(clamped_cx + half_w))))
-			y2 = max(y1 + 2, min(fh, int(round(clamped_cy + half_h))))
+			# Shift top-left corner so [x1, x1+int_w] and [y1, y1+int_h] never clip at image edges
+			x1 = int(np.clip(round(clamped_cx - half_w), 0, fw - int_w))
+			y1 = int(np.clip(round(clamped_cy - half_h), 0, fh - int_h))
+			x2 = x1 + int_w
+			y2 = y1 + int_h
 
 			cropped = frame[y1:y2, x1:x2]
 
 			if border_fill_mode == "blurred_backdrop":
-				bg = cv2.resize(frame[ay1:ay2, ax1:ax2], (self.out_w, self.out_h), interpolation=cv2.INTER_LINEAR)
-				bg = cv2.GaussianBlur(bg, (31, 31), 0)
-				fg = cv2.resize(cropped, (self.out_w, self.out_h), interpolation=cv2.INTER_LINEAR)
-				return cv2.addWeighted(fg, 0.96, bg, 0.04, 0)
+				bg_crop = frame[max(0, ay1) : min(fh, ay2), max(0, ax1) : min(fw, ax2)]
+				if bg_crop.size > 0:
+					bg = cv2.resize(bg_crop, (self.out_w, self.out_h), interpolation=cv2.INTER_LINEAR)
+					bg = cv2.GaussianBlur(bg, (31, 31), 0)
+					fg = cv2.resize(cropped, (self.out_w, self.out_h), interpolation=cv2.INTER_LINEAR)
+					return cv2.addWeighted(fg, 0.96, bg, 0.04, 0)
 
 			return cv2.resize(cropped, (self.out_w, self.out_h), interpolation=cv2.INTER_LINEAR)
 		except Exception as exc:
@@ -141,8 +159,8 @@ class SmoothAutoZoomViewport:
 class DualStreamCompositor:
 	"""
 	Generates the two clean, synchronized team-table streams in parallel across CPU cores:
-	  - Stream 1 (Left): Red Team Table with smooth Robot Auto-Zoom (clean video, no heatmap/HUD)
-	  - Stream 2 (Right): Blue Team Table with identical smooth Robot Auto-Zoom (clean video, no heatmap/HUD)
+	  - Stream 1 (Left / Red Team): Single Table 1 with smooth Robot Auto-Zoom
+	  - Stream 2 (Right / Blue Team): Single Table 2 with identical smooth Robot Auto-Zoom
 	"""
 
 	def __init__(
@@ -169,6 +187,11 @@ class DualStreamCompositor:
 			target_zoom=cfg.auto_zoom.zoom_factor,
 			idle_zoom=cfg.auto_zoom.idle_zoom_factor,
 		)
+
+	def reset_viewports(self):
+		with self._lock:
+			self.vp1.reset()
+			self.vp2.reset()
 
 	def update_zoom_settings(
 		self,
@@ -203,7 +226,13 @@ class DualStreamCompositor:
 	) -> Optional[Tuple[int, int]]:
 		if pt is None:
 			return None
-		if pt.state not in (RobotState.AUTONOMOUS, RobotState.IN_BASE, RobotState.MANIPULATED_BY_HAND):
+		# Include OCCLUDED so Sticky Lock-On keeps the Auto-Zoom steady on the robot during brief stops!
+		if pt.state not in (
+			RobotState.AUTONOMOUS,
+			RobotState.IN_BASE,
+			RobotState.MANIPULATED_BY_HAND,
+			RobotState.OCCLUDED,
+		):
 			return None
 		if not homography.is_mm_in_active_zone(pt.x_mm, pt.y_mm):
 			return None
@@ -220,11 +249,19 @@ class DualStreamCompositor:
 	) -> Tuple[np.ndarray, np.ndarray]:
 		"""
 		Composes (stream1_red_team, stream2_blue_team) in parallel on two CPU worker threads.
+		If latest_point_table2 is not explicitly passed and both tables share the same homography
+		(e.g. unit test mode), falls back to latest_point_table1; when homography2 is distinct,
+		Table 1 and Table 2 zoom independently on their respective robots.
 		"""
 		frame1 = raw_frame_table1
 		frame2 = raw_frame_table2 if raw_frame_table2 is not None else raw_frame_table1
 		pt1 = latest_point_table1
-		pt2 = latest_point_table2 if latest_point_table2 is not None else latest_point_table1
+		if latest_point_table2 is not None:
+			pt2 = latest_point_table2
+		elif self.homography2 is self.homography1:
+			pt2 = latest_point_table1
+		else:
+			pt2 = None
 
 		fh1, fw1 = frame1.shape[:2]
 		fh2, fw2 = frame2.shape[:2]

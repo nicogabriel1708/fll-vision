@@ -1,6 +1,9 @@
 """
-FLL-Vision v4: Automated Training Pipeline (Extract -> Auto-Label -> Split -> Train -> TensorRT Export)
+FLL-Vision Automated Training Pipeline (Extract -> Auto-Label -> Split -> Train -> TensorRT Export)
 Supports:
+  - Interactive checks before overwriting an existing trained model (`models/fll_yolo11s.pt` / `.engine`)
+  - Interactive check to reuse an already extracted & auto-labeled dataset (`data/dataset/images/train`)
+    so Step 1 & Step 2 don't have to be repeated if they already succeeded!
   - Both one single long video and multiple short videos in `data/training_videos/` (regardless of filename)
   - Strict Active Half-Table Masking: ignores the unused half of the table (hands, bottles, etc.)
     and everything outside the table border during both frame extraction/auto-labeling and training.
@@ -65,8 +68,8 @@ def box_iou(boxA: np.ndarray, boxB: np.ndarray) -> float:
 	xA = max(boxA[0], boxB[0])
 	yA = max(boxA[1], boxB[1])
 	xB = min(boxA[2], boxB[2])
-	yB = min(boxA[3], boxB[3])
-	inter = max(0.0, xB - xA) * max(0.0, yB - yA)
+	yY = min(boxA[3], boxB[3])
+	inter = max(0.0, xB - xA) * max(0.0, yY - yA)
 	if inter <= 0:
 		return 0.0
 	areaA = (boxA[2] - boxA[0]) * (boxA[3] - boxA[1])
@@ -91,7 +94,6 @@ def step1_extract_and_autolabel(
 	img_dir.mkdir(parents=True, exist_ok=True)
 	lbl_dir.mkdir(parents=True, exist_ok=True)
 
-	# Compute adaptive frame stride so both 1 long video and many short videos yield balanced datasets
 	total_video_frames = 0
 	for vp in videos:
 		cap = cv2.VideoCapture(str(vp))
@@ -132,7 +134,6 @@ def step1_extract_and_autolabel(
 			if frame_idx == 1 and homography.cfg.auto_detect_borders:
 				homography.auto_detect_corners(frame, apply_immediately=True)
 
-			# Strictly mask out the unused half of the table + outside surroundings!
 			masked = homography.apply_roi_mask(frame)
 			fg_mask = bg_sub.apply(masked)
 
@@ -173,7 +174,6 @@ def step1_extract_and_autolabel(
 					cx_px = 0.5 * (box[0] + box[2])
 					cy_px = 0.5 * (box[1] + box[3])
 					x_mm, y_mm = homography.px_to_mm(cx_px, cy_px)
-					# Double-check detection lies inside the active half of the table
 					if not homography.is_mm_in_active_zone(x_mm, y_mm):
 						continue
 
@@ -183,6 +183,8 @@ def step1_extract_and_autolabel(
 						cx, cy, bw, bh = xyxy_to_yolo(box, w, h)
 						yolo_annotations.append(f"{target_cls} {cx:.6f} {cy:.6f} {bw:.6f} {bh:.6f}")
 
+			# Group B #3 Fix: Only label a motion box as 'robot' if it exhibits sustained directional
+			# travel across the mat (prevents vibrating mission models or shadows from being mislabeled!)
 			has_hand = any(line.startswith("1 ") for line in yolo_annotations)
 			has_robot = any(line.startswith("0 ") for line in yolo_annotations)
 			if not has_robot and not has_hand and len(motion_boxes) == 1:
@@ -191,9 +193,14 @@ def step1_extract_and_autolabel(
 				mcy = 0.5 * (mbox[1] + mbox[3])
 				x_mm, y_mm = homography.px_to_mm(mcx, mcy)
 				in_base, _ = homography.is_in_launch_area(x_mm, y_mm)
-				if not in_base and homography.is_mm_in_active_zone(x_mm, y_mm):
-					cx, cy, bw, bh = xyxy_to_yolo(mbox, w, h)
-					yolo_annotations.append(f"0 {cx:.6f} {cy:.6f} {bw:.6f} {bh:.6f}")
+				prev_mm = getattr(step1_extract_and_autolabel, "_prev_motion_mm", None)
+				step1_extract_and_autolabel._prev_motion_mm = (x_mm, y_mm)
+				if prev_mm is not None and not in_base and homography.is_mm_in_active_zone(x_mm, y_mm):
+					travel_mm = float(np.hypot(x_mm - prev_mm[0], y_mm - prev_mm[1]))
+					# Require genuine travel distance (35mm..450mm) between sampled frames
+					if 35.0 <= travel_mm <= 450.0:
+						cx, cy, bw, bh = xyxy_to_yolo(mbox, w, h)
+						yolo_annotations.append(f"0 {cx:.6f} {cy:.6f} {bw:.6f} {bh:.6f}")
 
 			is_static_background = len(motion_boxes) == 0 and len(yolo_annotations) == 0 and random.random() < 0.15
 			if yolo_annotations or is_static_background:
@@ -201,7 +208,6 @@ def step1_extract_and_autolabel(
 				stem = f"fll_auto_{sample_idx:06d}"
 				img_path = img_dir / f"{stem}.jpg"
 				lbl_path = lbl_dir / f"{stem}.txt"
-				# Save the active-half MASKED image so training only ever sees the relevant half!
 				cv2.imwrite(str(img_path), masked)
 				with open(lbl_path, "w", encoding="utf-8") as f:
 					f.write("\n".join(yolo_annotations))
@@ -214,10 +220,19 @@ def step1_extract_and_autolabel(
 
 
 def step2_split_dataset(samples: List[Tuple[Path, Path]], dataset_dir: Path, val_ratio: float = 0.15):
-	random.shuffle(samples)
-	n_val = max(1, int(len(samples) * val_ratio))
-	val_samples = samples[:n_val]
-	train_samples = samples[n_val:]
+	"""
+	Group B #2 Fix: Chronological contiguous block split with buffer gap!
+	Prevents data leakage caused by random frame-level shuffling where nearly identical
+	adjacent video frames end up in both train and val sets.
+	"""
+	samples_sorted = sorted(samples, key=lambda pair: pair[0].name)
+	n_total = len(samples_sorted)
+	n_val = max(1, int(round(n_total * val_ratio)))
+	# Leave a temporal buffer gap of up to 3 frames between train block and val block
+	buffer_gap = min(3, max(0, n_total - n_val - 5))
+	split_idx = max(1, n_total - n_val - buffer_gap)
+	train_samples = samples_sorted[:split_idx]
+	val_samples = samples_sorted[split_idx + buffer_gap :]
 
 	for split_name, split_list in [("train", train_samples), ("val", val_samples)]:
 		s_img_dir = dataset_dir / "images" / split_name
@@ -315,7 +330,7 @@ def main():
 	# 1. Check if a finished trained model already exists
 	if (target_pt.exists() or target_engine.exists()) and is_interactive:
 		print("\n==================================================================")
-		print(" [Info] Ein trainiertes Modell existiert bereits:")
+		print(f" [Info] Ein trainiertes Modell existiert bereits:")
 		if target_pt.exists():
 			print(f"   - PyTorch Weights : {target_pt}")
 		if target_engine.exists():
@@ -341,7 +356,7 @@ def main():
 			reuse_existing_dataset = True
 		elif is_interactive:
 			print("\n==================================================================")
-			print(" [Dataset gefunden] Bereits extrahiertes & annotiertes Dataset vorhanden:")
+			print(f" [Dataset gefunden] Bereits extrahiertes & annotiertes Dataset vorhanden:")
 			print(f"   - Train-Bilder : {len(existing_train_imgs)}")
 			print(f"   - Val-Bilder   : {len(existing_val_imgs)}")
 			print("==================================================================")

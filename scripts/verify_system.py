@@ -168,16 +168,20 @@ def run_all_checks():
 		assert db.validate_session(s_adm["token"], "volunteers") is not None
 	print("[PASS 3/7] Users ('volunteers', 'engineers', 'admin') & PBKDF2-SHA256 RBAC verified.")
 
-	# 4. Default Camera Source (/dev/video0), Active Half-Table Masking & Multi-Video Discovery Check
+	# 4. Default Camera Source (/dev/video0), Double-Table Split & Non-Stretched Homography Check
 	cfg = load_config(str(ROOT / "config" / "config.yaml"))
 	assert cfg.video.source == "/dev/video0", f"Expected default video.source '/dev/video0', got {cfg.video.source}"
+	assert cfg.video.use_native_fps is True
+	assert cfg.video.save_annotated_video is False
 	homography = TableHomography(cfg.table)
+	homography2 = TableHomography(cfg.table.make_table2_config())
 	assert homography.is_mm_in_active_zone(450.0, 500.0) is True
-	assert homography.is_mm_in_active_zone(1900.0, 500.0) is False
 	test_img = np.full((1080, 1920, 3), 255, dtype=np.uint8)
-	masked_img = homography.apply_roi_mask(test_img)
-	assert np.all(masked_img[540, 1400] == 0)
-	assert np.all(masked_img[50, 50] == 0)
+	masked_t1 = homography.apply_roi_mask(test_img)
+	masked_t2 = homography2.apply_roi_mask(test_img)
+	# Table 1 (Left: x=60..960) masks out Table 2 (Right: x=1400), and vice versa
+	assert np.all(masked_t1[540, 1400] == 0)
+	assert np.all(masked_t2[540, 400] == 0)
 
 	with tempfile.TemporaryDirectory() as tmpvid:
 		vdir = Path(tmpvid)
@@ -232,13 +236,15 @@ def run_all_checks():
 			visualizer=visualizer,
 		)
 
-		reader = AsyncVideoReader(demo_vid, target_fps=60.0, loop_file=True).start()
+		reader = AsyncVideoReader(demo_vid, target_fps=60.0, loop_file=True, use_native_fps=False).start()
 		frame_count = 0
 		last_id = 0
 		while True:
 			ret, frame, last_id = reader.read_latest(last_id, timeout_s=0.5)
-			if not ret or frame is None:
+			if not ret:
 				break
+			if frame is None:
+				continue
 			frame_count += 1
 			rx_px = 320 + frame_count * 12
 			ry_px = 520
