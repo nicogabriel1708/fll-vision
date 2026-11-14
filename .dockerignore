@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+*$py.class
+.git/
+.gitignore
+.gitattributes
+.DS_Store
+.env
+data/db/*.sqlite3
+data/db/*.sqlite3-shm
+data/db/*.sqlite3-wal
+data/outputs/*
+!data/outputs/.gitkeep
+data/dataset/
+models/*.engine
+models/fll_auto_train/

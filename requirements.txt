@@ -1,0 +1,15 @@
+# Core dependencies (installed on top of NVIDIA NGC PyTorch ARM64 image)
+ultralytics>=8.3.20
+opencv-python-headless>=4.10.0.84
+numpy>=1.26.4
+scipy>=1.13.0
+pyyaml>=6.0.2
+pydantic>=2.9.0
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.6
+python-multipart>=0.0.12
+websockets>=13.0
+lapx>=0.5.9
+filterpy>=1.4.5
+onnx>=1.16.0
+onnxslim>=0.1.34

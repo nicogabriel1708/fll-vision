@@ -1,0 +1,11 @@
+# Ultralytics YOLO Dataset Configuration for FLL-Vision
+path: /workspace/data/dataset
+train: images/train
+val: images/val
+test: images/test
+
+# Classes explicitly designed to distinguish the robot from hands and alignment jigs
+names:
+  0: robot
+  1: hand
+  2: attachment_jig

@@ -1,0 +1,41 @@
+services:
+  fll-vision:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: fll-vision:dgx-spark-production
+    container_name: fll-vision
+    restart: unless-stopped
+    # DGX Spark features 128GB unified LPDDR5x memory; ipc: host enables zero-copy shared memory
+    ipc: host
+    ulimits:
+      memlock: -1
+      stack: 67108864
+    # Allow access to all Linux V4L2 USB camera devices (/dev/video*, major 81) including hot-plugging
+    device_cgroup_rules:
+      - "c 81:* rmw"
+    ports:
+      - "${FLL_PORT:-8080}:8080"
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility,video
+      - CONFIG_PATH=/workspace/config/config.yaml
+      - FLL_ADMIN_USER=${FLL_ADMIN_USER:-admin}
+      - FLL_ADMIN_PASSWORD=${FLL_ADMIN_PASSWORD:-}
+      - FLL_VOLUNTEERS_USER=${FLL_VOLUNTEERS_USER:-volunteers}
+      - FLL_VOLUNTEERS_PASSWORD=${FLL_VOLUNTEERS_PASSWORD:-}
+      - FLL_ENGINEERS_USER=${FLL_ENGINEERS_USER:-engineers}
+      - FLL_ENGINEERS_PASSWORD=${FLL_ENGINEERS_PASSWORD:-}
+    volumes:
+      - ./config:/workspace/config
+      - ./models:/workspace/models
+      - ./data:/workspace/data
+      - /dev:/dev
+      - /sys/class/video4linux:/sys/class/video4linux:ro
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu, compute, utility, video]

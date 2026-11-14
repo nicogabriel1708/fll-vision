@@ -1,0 +1,781 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" href="/static/images/fll-logo-bg-white.png" />
+    <title>System Configuration</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            background: #0f172a;
+            color: #f8fafc;
+            font-family: system-ui, -apple-system, sans-serif;
+            padding: 18px 24px;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-bottom: 14px;
+            border-bottom: 1px solid #334155;
+            margin-bottom: 16px;
+        }
+        .header h1 { font-size: 21px; color: #38bdf8; }
+        .nav-tabs {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-bottom: 18px;
+            border-bottom: 1px solid #334155;
+            padding-bottom: 12px;
+        }
+        .tab-btn {
+            background: #1e293b;
+            color: #cbd5e1;
+            border: 1px solid #334155;
+            padding: 10px 18px;
+            border-radius: 10px;
+            font-weight: 700;
+            font-size: 13.5px;
+            cursor: pointer;
+            transition: 0.15s;
+        }
+        .tab-btn.active {
+            background: #0284c7;
+            color: #fff;
+            border-color: #38bdf8;
+        }
+        .tab-panel { display: none; }
+        .tab-panel.active { display: block; }
+
+        .grid-2 { display: grid; grid-template-columns: 1.6fr 1fr; gap: 20px; align-items: start; }
+        .card {
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 12px;
+            padding: 18px;
+            margin-bottom: 18px;
+        }
+        .card h3 { font-size: 16px; color: #38bdf8; margin-bottom: 12px; }
+        label { display: block; font-size: 12.5px; font-weight: 600; color: #94a3b8; margin-bottom: 5px; margin-top: 10px; }
+        input, select {
+            width: 100%;
+            padding: 9px 11px;
+            background: #0f172a;
+            border: 1px solid #475569;
+            border-radius: 8px;
+            color: #fff;
+            font-size: 13.5px;
+        }
+        .btn {
+            cursor: pointer;
+            border: none;
+            border-radius: 8px;
+            padding: 9px 15px;
+            font-weight: 700;
+            font-size: 13px;
+            color: #fff;
+            background: #334155;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .btn:hover { background: #475569; }
+        .btn.primary { background: #10b981; color: #022c22; }
+        .btn.accent { background: #0284c7; }
+        .btn.warn { background: #f59e0b; color: #0f172a; }
+        .canvas-wrap {
+            position: relative;
+            width: 100%;
+            border-radius: 8px;
+            border: 2px solid #475569;
+            overflow: hidden;
+            background: #020617;
+        }
+        canvas { display: block; width: 100%; height: auto; cursor: crosshair; }
+        table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 10px; }
+        th, td { padding: 8px 10px; border-bottom: 1px solid #334155; text-align: left; }
+        th { color: #38bdf8; background: #0f172a; }
+        .status-toast { font-size: 13px; font-weight: 700; color: #34d399; margin-left: 12px; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🛠️ System Configuration</h1>
+        <div style="display:flex;gap:10px;align-items:center;">
+            <span id="saveToast" class="status-toast">Bereit</span>
+            <a class="btn" href="/" target="_blank">📺 Match-Stream</a>
+            <a class="btn" href="/control" target="_blank">🎮 Volunteer Control</a>
+            <a class="btn" href="/admin">👑 Admin Panel</a>
+            <form method="POST" action="/logout" style="display:inline;">
+                <button type="submit" class="btn">Abmelden</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Navigation Menus on the Same Page -->
+    <div class="nav-tabs">
+        <button class="tab-btn active" onclick="openTab('tabCrop', this)">📐 1. Tisch-Größe, Halbtisch-Maske & Crop</button>
+        <button class="tab-btn" onclick="openTab('tabZoom', this)">🔍 2. Stream Auto-Zoom & 1:1 Ränder</button>
+        <button class="tab-btn" onclick="openTab('tabHeatmap', this)">🔥 3. Heatmaps & Lauf-Dokumentation (Runs)</button>
+        <button class="tab-btn" onclick="openTab('tabTracker', this)">⚙️ 4. KI-Tracker, Hand-Veto & Telemetrie</button>
+    </div>
+
+    <!-- TAB 1: VIDEO SOURCE (USB / RTSP / FILE), TABLE SIZE, ACTIVE HALF & SELECTION-BOX CROP -->
+    <div id="tabCrop" class="tab-panel active">
+        <!-- LIVE CAMERA / RTSP / VIDEO SOURCE SELECTION CARD -->
+        <div class="card" style="border-color:#0284c7;">
+            <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:10px;">
+                <h3>🎥 Video-Quelle & Live-Kamera Auswahl (USB Auto-Detect / RTSP-Stream / Videodatei)</h3>
+                <button class="btn accent" onclick="scanVideoSources()">🔄 Angeschlossene Kameras & Quellen scannen</button>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1.2fr auto;gap:14px;align-items:end;">
+                <div>
+                    <label style="margin-top:0;">Automatisch erkannte USB-Kameras & lokale Videos</label>
+                    <select id="detectedSourcesSelect" onchange="onDetectedSourcePick()">
+                        <option value="">-- Scanne angeschlossene Kameras... --</option>
+                    </select>
+                </div>
+                <div>
+                    <label style="margin-top:0;">Video-Quelle (USB z.B. <code>/dev/video0</code> oder <code>0</code>, RTSP z.B. <code>rtsp://...</code> oder Dateipfad)</label>
+                    <input id="videoSourceInput" type="text" placeholder="z.B. /dev/video0 oder rtsp://192.168.1.50:554/stream" />
+                </div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                    <button class="btn warn" onclick="testVideoSource()">🔍 Bild-Check testen</button>
+                    <button class="btn primary" onclick="saveVideoSource()">💾 Prüfen & Live aktivieren</button>
+                </div>
+            </div>
+            <div id="videoProbeStatusBox" style="display:none;margin-top:12px;padding:12px;border-radius:8px;background:#0f172a;border:1px solid #334155;align-items:center;gap:16px;">
+                <img id="videoProbePreviewImg" style="width:192px;height:108px;object-fit:cover;border-radius:6px;border:1px solid #38bdf8;display:none;" />
+                <div>
+                    <div id="videoProbeStatusText" style="font-size:13.5px;font-weight:700;"></div>
+                    <div id="videoProbeMetaText" style="font-size:12px;color:#94a3b8;margin-top:4px;"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="grid-2">
+            <div class="card">
+                <h3>Kamerabild: Tischgrenzen (Selection-Box / 4-Ecken) & Aktive Tischhälfte</h3>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
+                    <button id="modeRectBtn" class="btn warn" onclick="setCropMode('rect')">🔲 Rechteck Selection-Box</button>
+                    <button id="modeQuadBtn" class="btn" onclick="setCropMode('quad')">📐 4-Ecken frei ziehen</button>
+                    <button class="btn accent" onclick="autoDetectBorders()">🪄 Auto-Detect Tischkanten</button>
+                    <button class="btn" onclick="reloadCalibrationFrame()">🔄 Bild aktualisieren</button>
+                    <button class="btn primary" onclick="saveTableCalibration()">💾 Speichern & Live aktivieren</button>
+                </div>
+                <div class="canvas-wrap">
+                    <canvas id="calibCanvas" width="1920" height="1080"></canvas>
+                </div>
+                <p style="font-size:12px;color:#94a3b8;margin-top:8px;">
+                    <b>Hinweis zur Halbtisch-Maskierung:</b> Der rot schraffierte Teil des Tisches ist die <b>ungenutzte Tischhälfte</b> (Hände, Flaschen etc.) und wird beim Training & Tracking zu 100% ausgeschlossen!
+                </p>
+            </div>
+
+            <div class="card">
+                <h3>Aktive Tischhälfte & 2D-Entzerrungs-Vorschau</h3>
+                <label>Aktiver Bereich des FLL-Tisches (Matte mit Aufgaben)</label>
+                <select id="activeHalfMode" onchange="onHalfModeChange()">
+                    <option value="left_half">Nur Linke Tischhälfte aktiv (0% – 50%, Rechte Hälfte ignoriert)</option>
+                    <option value="right_half">Nur Rechte Tischhälfte aktiv (50% – 100%, Linke Hälfte ignoriert)</option>
+                    <option value="full">Gesamter Tisch aktiv (0% – 100%)</option>
+                    <option value="custom_ratio">Benutzerdefinierter Teilbereich (X/Y Ratio)</option>
+                </select>
+
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+                    <div>
+                        <label>Aktiver X-Start (0.0 – 1.0)</label>
+                        <input id="activeX0" type="number" step="0.05" min="0" max="0.95" value="0.0" onchange="drawCalib();updatePreview();" />
+                    </div>
+                    <div>
+                        <label>Aktiver X-Ende (0.05 – 1.0)</label>
+                        <input id="activeX1" type="number" step="0.05" min="0.05" max="1.0" value="0.50" onchange="drawCalib();updatePreview();" />
+                    </div>
+                </div>
+
+                <label style="margin-top:14px;">Live 2D Bird's-Eye Vorschau (Ungenutzte Hälfte abgedunkelt):</label>
+                <img id="warpPreviewImg" style="width:100%;border-radius:8px;border:1px solid #475569;margin-top:6px;background:#020617;min-height:160px;" />
+
+                <h3 style="margin-top:16px;">4 Tischecken (Pixelkoordinaten):</h3>
+                <table>
+                    <thead><tr><th>Ecke</th><th>X (px)</th><th>Y (px)</th></tr></thead>
+                    <tbody>
+                        <tr><td>TL (Oben-Links)</td><td><input id="cx0" type="number" onchange="syncFromInputs()"></td><td><input id="cy0" type="number" onchange="syncFromInputs()"></td></tr>
+                        <tr><td>TR (Oben-Rechts)</td><td><input id="cx1" type="number" onchange="syncFromInputs()"></td><td><input id="cy1" type="number" onchange="syncFromInputs()"></td></tr>
+                        <tr><td>BR (Unten-Rechts)</td><td><input id="cx2" type="number" onchange="syncFromInputs()"></td><td><input id="cy2" type="number" onchange="syncFromInputs()"></td></tr>
+                        <tr><td>BL (Unten-Links)</td><td><input id="cx3" type="number" onchange="syncFromInputs()"></td><td><input id="cy3" type="number" onchange="syncFromInputs()"></td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- TAB 2: UNIFIED STREAM AUTO-ZOOM & 1:1 ASPECT BORDER FIX -->
+    <div id="tabZoom" class="tab-panel">
+        <div class="grid-2">
+            <div class="card">
+                <h3>🔍 Einheitlicher Roboter Auto-Zoom (Beide Team-Tische identisch)</h3>
+                <label>
+                    <input id="autoZoomEnabled" type="checkbox" checked style="width:auto;margin-right:8px;" />
+                    Automatischen Roboter-Verfolgungs-Zoom für beide Team-Tische aktivieren
+                </label>
+
+                <label>Einheitlicher Zoom-Faktor (für Red Team & Blue Team Tisch identisch): <b id="zUnifiedVal">2.2x</b></label>
+                <input id="zoomUnified" type="range" min="1.0" max="4.0" step="0.1" value="2.2" oninput="document.getElementById('zUnifiedVal').textContent=this.value+'x'" />
+
+                <label>Zoom-Out / Idle-Faktor (wenn Roboter pausiert/in Base): <b id="zIdleVal">1.0x</b></label>
+                <input id="zoomIdle" type="range" min="1.0" max="2.0" step="0.05" value="1.0" oninput="document.getElementById('zIdleVal').textContent=this.value+'x'" />
+
+                <label>1:1 Seitenverhältnis Rand-Modus (Verhindert schwarze Ränder beim Herauszoomen)</label>
+                <select id="borderFillMode">
+                    <option value="cover_crop">Dynamischer 1:1 Halbtisch-Cover-Crop (Garantiert 0 schwarze Ränder)</option>
+                    <option value="blurred_backdrop">Ambient Blurred Backdrop (Unscharfer Hintergrund bei Extrem-Winkeln)</option>
+                </select>
+
+                <button class="btn primary" style="margin-top:16px;width:100%;justify-content:center;padding:12px;" onclick="saveZoomSettings()">
+                    💾 Einheitliche Zoom-Parameter speichern & sofort auf beide Team-Streams anwenden
+                </button>
+            </div>
+
+            <div class="card">
+                <h3>Live Vorschau: Beide Team-Tische (Ohne Heatmap / Ohne HUD)</h3>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                    <div>
+                        <div style="font-size:12px;color:#fca5a5;font-weight:700;margin-bottom:4px;">Red Team Tisch (/video-stream/red-team)</div>
+                        <img src="/video-stream/red-team" style="width:100%;aspect-ratio:1/1;border-radius:8px;border:3px solid #ed1c24;" />
+                    </div>
+                    <div>
+                        <div style="font-size:12px;color:#93c5fd;font-weight:700;margin-bottom:4px;">Blue Team Tisch (/video-stream/blue-team)</div>
+                        <img src="/video-stream/blue-team" style="width:100%;aspect-ratio:1/1;border-radius:8px;border:3px solid #0066b3;" />
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- TAB 3: HEATMAPS & RUN DOCUMENTATION -->
+    <div id="tabHeatmap" class="tab-panel">
+        <div class="grid-2">
+            <div class="card">
+                <h3>🔥 Live 2D Bird's-Eye Heatmap & Autonome Fahrspuren</h3>
+                <img id="minimapLiveImg" src="/minimap_feed" style="width:100%;border-radius:8px;border:1px solid #475569;" />
+                <div style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap;">
+                    <a class="btn accent" href="/api/backend/export/heatmap.png" download="fll_heatmap.png">📥 Heatmap PNG herunterladen</a>
+                    <a class="btn accent" href="/api/backend/export/runs.csv" download="runs_summary.csv">📊 Runs als CSV exportieren</a>
+                    <a class="btn accent" href="/api/backend/export/telemetry.json" download="match_telemetry.json">📄 Vollständiges JSON exportieren</a>
+                    <button class="btn warn" onclick="resetTrackerRuns()">🗑️ Heatmap & Läufe zurücksetzen</button>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3>📋 Aufgezeichnete Sorties / Autonome Läufe (Run-Dokumentation)</h3>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Run #</th>
+                            <th>Fahrzeit (s)</th>
+                            <th>Distanz (mm)</th>
+                            <th>Ø Speed (mm/s)</th>
+                            <th>Hand-Eingriff?</th>
+                        </tr>
+                    </thead>
+                    <tbody id="runsTableBody">
+                        <tr><td colspan="5" style="color:#94a3b8;">Noch keine Läufe aufgezeichnet.</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- TAB 4: AI TRACKER & HAND-VETO CONFIG -->
+    <div id="tabTracker" class="tab-panel">
+        <div class="grid-2">
+            <div class="card">
+                <h3>⚙️ Hand-Veto State Machine & Kalman-Filter Parameter</h3>
+                <label>Hand-Veto Sicherheitsradius um Roboter (mm):</label>
+                <input id="handRadiusMm" type="number" value="180" min="50" max="500" />
+
+                <label>Maximale physikalische Roboter-Geschwindigkeit (mm/s, Kinematik-Gate):</label>
+                <input id="maxSpeedMmS" type="number" value="1200" min="300" max="3000" />
+
+                <label>Stillstands-Rauschfilter / Micro-Jitter Gate (mm):</label>
+                <input id="noiseGateMm" type="number" step="0.5" value="4.0" min="0" max="25" />
+
+                <label>YOLO TensorRT Confidence-Schwellenwert (0.15 – 0.90):</label>
+                <input id="confThresh" type="number" step="0.05" value="0.40" min="0.15" max="0.90" />
+
+                <button class="btn primary" style="margin-top:16px;width:100%;justify-content:center;padding:12px;" onclick="saveTrackerSettings()">
+                    💾 Tracker-Parameter live übernehmen
+                </button>
+            </div>
+
+            <div class="card">
+                <h3>📊 Live Engine & GPU Telemetrie</h3>
+                <pre id="backendTelemetryPre" style="background:#0f172a;padding:14px;border-radius:8px;color:#34d399;font-size:12.5px;overflow-x:auto;border:1px solid #334155;">Lade Telemetrie...</pre>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function openTab(tabId, btn) {
+            document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            document.getElementById(tabId).classList.add('active');
+            btn.classList.add('active');
+        }
+
+        function toast(msg, color = '#34d399') {
+            const el = document.getElementById('saveToast');
+            el.textContent = msg;
+            el.style.color = color;
+        }
+
+        // --- TAB 1: Interactive Selection-Box & Active Half Calibration ---
+        const canvas = document.getElementById('calibCanvas');
+        const ctx = canvas.getContext('2d');
+        let bgImg = new Image();
+        let cropMode = 'rect';
+        let corners = [[210, 140], [1710, 140], [1860, 960], [60, 960]];
+        let dragState = null;
+
+        function setCropMode(m) {
+            cropMode = m;
+            document.getElementById('modeRectBtn').className = m === 'rect' ? 'btn warn' : 'btn';
+            document.getElementById('modeQuadBtn').className = m === 'quad' ? 'btn warn' : 'btn';
+            if (m === 'rect') {
+                const xs = corners.map(p => p[0]), ys = corners.map(p => p[1]);
+                const minX = Math.min(...xs), maxX = Math.max(...xs);
+                const minY = Math.min(...ys), maxY = Math.max(...ys);
+                corners = [[minX, minY], [maxX, minY], [maxX, maxY], [minX, maxY]];
+                syncToInputs();
+                drawCalib();
+                updatePreview();
+            }
+        }
+
+        function onHalfModeChange() {
+            const mode = document.getElementById('activeHalfMode').value;
+            if (mode === 'left_half') {
+                document.getElementById('activeX0').value = 0.0;
+                document.getElementById('activeX1').value = 0.50;
+            } else if (mode === 'right_half') {
+                document.getElementById('activeX0').value = 0.50;
+                document.getElementById('activeX1').value = 1.00;
+            } else if (mode === 'full') {
+                document.getElementById('activeX0').value = 0.0;
+                document.getElementById('activeX1').value = 1.00;
+            }
+            drawCalib();
+            updatePreview();
+        }
+
+        function syncToInputs() {
+            for (let i = 0; i < 4; i++) {
+                document.getElementById('cx' + i).value = Math.round(corners[i][0]);
+                document.getElementById('cy' + i).value = Math.round(corners[i][1]);
+            }
+        }
+
+        function syncFromInputs() {
+            for (let i = 0; i < 4; i++) {
+                corners[i][0] = parseFloat(document.getElementById('cx' + i).value) || 0;
+                corners[i][1] = parseFloat(document.getElementById('cy' + i).value) || 0;
+            }
+            drawCalib();
+            updatePreview();
+        }
+
+        function getMousePt(evt) {
+            const r = canvas.getBoundingClientRect();
+            return [
+                (evt.clientX - r.left) * (canvas.width / r.width),
+                (evt.clientY - r.top) * (canvas.height / r.height)
+            ];
+        }
+
+        function ptInQuad(pt, q) {
+            let x = pt[0], y = pt[1], inside = false;
+            for (let i = 0, j = 3; i < 4; j = i++) {
+                let xi = q[i][0], yi = q[i][1], xj = q[j][0], yj = q[j][1];
+                if (((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi + 1e-6) + xi)) inside = !inside;
+            }
+            return inside;
+        }
+
+        canvas.addEventListener('mousedown', (evt) => {
+            const pt = getMousePt(evt);
+            for (let i = 0; i < 4; i++) {
+                if (Math.hypot(pt[0] - corners[i][0], pt[1] - corners[i][1]) < 24) {
+                    dragState = { type: 'corner', idx: i, orig: JSON.parse(JSON.stringify(corners)) };
+                    return;
+                }
+            }
+            if (ptInQuad(pt, corners)) {
+                dragState = { type: 'move', start: pt, orig: JSON.parse(JSON.stringify(corners)) };
+            } else if (cropMode === 'rect') {
+                dragState = { type: 'new_rect', start: pt };
+            }
+        });
+
+        window.addEventListener('mousemove', (evt) => {
+            if (!dragState) return;
+            const pt = getMousePt(evt);
+            if (dragState.type === 'corner') {
+                if (cropMode === 'quad') {
+                    corners[dragState.idx] = pt;
+                } else {
+                    const opp = dragState.orig[(dragState.idx + 2) % 4];
+                    const x1 = Math.min(pt[0], opp[0]), x2 = Math.max(pt[0], opp[0]);
+                    const y1 = Math.min(pt[1], opp[1]), y2 = Math.max(pt[1], opp[1]);
+                    corners = [[x1, y1], [x2, y1], [x2, y2], [x1, y2]];
+                }
+            } else if (dragState.type === 'move') {
+                const dx = pt[0] - dragState.start[0], dy = pt[1] - dragState.start[1];
+                corners = dragState.orig.map(p => [p[0] + dx, p[1] + dy]);
+            } else if (dragState.type === 'new_rect') {
+                const s = dragState.start;
+                const x1 = Math.min(pt[0], s[0]), x2 = Math.max(pt[0], s[0]);
+                const y1 = Math.min(pt[1], s[1]), y2 = Math.max(pt[1], s[1]);
+                corners = [[x1, y1], [x2, y1], [x2, y2], [x1, y2]];
+            }
+            syncToInputs();
+            drawCalib();
+        });
+
+        window.addEventListener('mouseup', () => {
+            if (dragState) {
+                dragState = null;
+                updatePreview();
+            }
+        });
+
+        function lerpPt(pA, pB, t) {
+            return [pA[0] + (pB[0] - pA[0]) * t, pA[1] + (pB[1] - pA[1]) * t];
+        }
+
+        function drawCalib() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            if (bgImg.complete && bgImg.naturalWidth > 0) {
+                ctx.drawImage(bgImg, 0, 0, canvas.width, canvas.height);
+            }
+            // Darken outside full table
+            ctx.save();
+            ctx.fillStyle = 'rgba(2, 6, 23, 0.65)';
+            ctx.beginPath();
+            ctx.rect(0, 0, canvas.width, canvas.height);
+            ctx.moveTo(corners[0][0], corners[0][1]);
+            for (let i = 1; i < 4; i++) ctx.lineTo(corners[i][0], corners[i][1]);
+            ctx.closePath();
+            ctx.fill('evenodd');
+            ctx.restore();
+
+            // Highlight ACTIVE half in green/cyan and UNUSED half in red shade
+            const rx0 = parseFloat(document.getElementById('activeX0').value) || 0.0;
+            const rx1 = parseFloat(document.getElementById('activeX1').value) || 0.5;
+            const actTL = lerpPt(corners[0], corners[1], rx0);
+            const actTR = lerpPt(corners[0], corners[1], rx1);
+            const actBR = lerpPt(corners[3], corners[2], rx1);
+            const actBL = lerpPt(corners[3], corners[2], rx0);
+
+            // Shade full table lightly red (excluded half)
+            ctx.save();
+            ctx.fillStyle = 'rgba(239, 68, 68, 0.28)';
+            ctx.beginPath();
+            ctx.moveTo(corners[0][0], corners[0][1]);
+            for (let i = 1; i < 4; i++) ctx.lineTo(corners[i][0], corners[i][1]);
+            ctx.closePath();
+            ctx.fill();
+
+            // Draw active half in bright green/cyan border
+            ctx.fillStyle = 'rgba(16, 185, 129, 0.15)';
+            ctx.strokeStyle = '#10b981';
+            ctx.lineWidth = 4;
+            ctx.beginPath();
+            ctx.moveTo(actTL[0], actTL[1]);
+            ctx.lineTo(actTR[0], actTR[1]);
+            ctx.lineTo(actBR[0], actBR[1]);
+            ctx.lineTo(actBL[0], actBL[1]);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+            ctx.restore();
+
+            // Draw outer table border & handles
+            ctx.strokeStyle = '#38bdf8';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(corners[0][0], corners[0][1]);
+            for (let i = 1; i < 4; i++) ctx.lineTo(corners[i][0], corners[i][1]);
+            ctx.closePath();
+            ctx.stroke();
+
+            const labels = ['TL', 'TR', 'BR', 'BL'];
+            const cols = ['#38bdf8', '#34d399', '#f59e0b', '#f43f5e'];
+            for (let i = 0; i < 4; i++) {
+                ctx.fillStyle = cols[i];
+                ctx.beginPath();
+                ctx.arc(corners[i][0], corners[i][1], 14, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = '#0f172a';
+                ctx.font = 'bold 11px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(labels[i], corners[i][0], corners[i][1]);
+            }
+        }
+
+        async function reloadCalibrationFrame() {
+            const res = await fetch('/api/calibration/state');
+            if (res.ok) {
+                const st = await res.json();
+                corners = st.corners_px;
+                document.getElementById('activeHalfMode').value = st.active_half_mode || 'left_half';
+                if (st.active_x_ratio) {
+                    document.getElementById('activeX0').value = st.active_x_ratio[0];
+                    document.getElementById('activeX1').value = st.active_x_ratio[1];
+                }
+                if (st.streams && st.streams.auto_zoom) {
+                    const az = st.streams.auto_zoom;
+                    const zf = az.zoom_factor != null ? az.zoom_factor : az.zoom_factor_stream1;
+                    document.getElementById('autoZoomEnabled').checked = az.enabled;
+                    document.getElementById('zoomUnified').value = zf;
+                    document.getElementById('zUnifiedVal').textContent = zf + 'x';
+                    document.getElementById('zoomIdle').value = az.idle_zoom_factor;
+                    document.getElementById('zIdleVal').textContent = az.idle_zoom_factor + 'x';
+                    document.getElementById('borderFillMode').value = az.border_fill_mode;
+                }
+                syncToInputs();
+            }
+            bgImg.onload = () => {
+                canvas.width = bgImg.naturalWidth || 1920;
+                canvas.height = bgImg.naturalHeight || 1080;
+                drawCalib();
+                updatePreview();
+            };
+            bgImg.src = '/api/calibration/raw_frame?t=' + Date.now();
+        }
+
+        async function autoDetectBorders() {
+            toast('Suche Tischkanten...', '#f59e0b');
+            const res = await fetch('/api/calibration/auto_detect', { method: 'POST' });
+            if (res.ok) {
+                const data = await res.json();
+                corners = data.corners_px;
+                setCropMode('quad');
+                syncToInputs();
+                drawCalib();
+                updatePreview();
+                toast(data.detected ? 'Tischkanten automatisch erkannt!' : 'Bitte manuell feinjustieren', '#34d399');
+            }
+        }
+
+        async function updatePreview() {
+            const payload = {
+                corners_px: corners,
+                active_half_mode: document.getElementById('activeHalfMode').value,
+                active_x_ratio: [
+                    parseFloat(document.getElementById('activeX0').value) || 0.0,
+                    parseFloat(document.getElementById('activeX1').value) || 0.5
+                ],
+                active_y_ratio: [0.0, 1.0]
+            };
+            const res = await fetch('/api/calibration/preview', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            if (res.ok) {
+                const blob = await res.blob();
+                document.getElementById('warpPreviewImg').src = URL.createObjectURL(blob);
+            }
+        }
+
+        async function saveTableCalibration() {
+            const payload = {
+                corners_px: corners,
+                auto_detect_borders: false,
+                active_half_mode: document.getElementById('activeHalfMode').value,
+                active_x_ratio: [
+                    parseFloat(document.getElementById('activeX0').value) || 0.0,
+                    parseFloat(document.getElementById('activeX1').value) || 0.5
+                ],
+                active_y_ratio: [0.0, 1.0]
+            };
+            const res = await fetch('/api/calibration/save', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            if (res.ok) toast('✅ Tisch- & Halbtisch-Kalibrierung gespeichert!');
+        }
+
+        async function saveZoomSettings() {
+            const zf = parseFloat(document.getElementById('zoomUnified').value) || 2.2;
+            const payload = {
+                enabled: document.getElementById('autoZoomEnabled').checked,
+                zoom_factor: zf,
+                idle_zoom_factor: parseFloat(document.getElementById('zoomIdle').value) || 1.0,
+                border_fill_mode: document.getElementById('borderFillMode').value
+            };
+            const res = await fetch('/api/configuration/zoom', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            if (res.ok) toast('✅ Einheitlicher Auto-Zoom für beide Team-Streams übernommen!');
+        }
+
+        async function saveTrackerSettings() {
+            const payload = {
+                proximity_radius_mm: parseFloat(document.getElementById('handRadiusMm').value) || 180.0,
+                max_robot_speed_mm_s: parseFloat(document.getElementById('maxSpeedMmS').value) || 1200.0,
+                stationary_noise_gate_mm: parseFloat(document.getElementById('noiseGateMm').value) || 4.0,
+                conf_threshold: parseFloat(document.getElementById('confThresh').value) || 0.40
+            };
+            const res = await fetch('/api/backend/tracker_config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            if (res.ok) toast('✅ KI-Tracker Parameter live aktualisiert!');
+        }
+
+        async function resetTrackerRuns() {
+            const res = await fetch('/api/backend/reset_runs', { method: 'POST' });
+            if (res.ok) toast('🗑️ Heatmap & Läufe zurückgesetzt!');
+        }
+
+        setInterval(async () => {
+            try {
+                const res = await fetch('/api/telemetry');
+                if (!res.ok) return;
+                const data = await res.json();
+                document.getElementById('backendTelemetryPre').textContent = JSON.stringify(data, null, 2);
+                const tbody = document.getElementById('runsTableBody');
+                const runs = data.runs_summary || [];
+                if (runs.length > 0) {
+                    tbody.innerHTML = runs.map(r => `
+                        <tr>
+                            <td><b>Run #${r.run_id}</b></td>
+                            <td>${r.duration_s} s</td>
+                            <td>${r.distance_mm} mm</td>
+                            <td>${Math.round(r.distance_mm / Math.max(0.1, r.duration_s))} mm/s</td>
+                            <td>${r.interrupted_by_hand ? '<span style="color:#f87171;font-weight:700;">JA (Touch Penalty)</span>' : '<span style="color:#34d399;">Nein (Sauber)</span>'}</td>
+                        </tr>
+                    `).join('');
+                }
+            } catch (e) {}
+        }, 500);
+
+        async function scanVideoSources() {
+            const sel = document.getElementById('detectedSourcesSelect');
+            sel.innerHTML = '<option value="">🔄 Suche nach angeschlossenen USB-Kameras & Videos...</option>';
+            try {
+                const res = await fetch('/api/configuration/video_sources');
+                if (!res.ok) return;
+                const data = await res.json();
+                const currentSrc = data.current_source || '';
+                const inp = document.getElementById('videoSourceInput');
+                if (!inp.value && currentSrc) inp.value = currentSrc;
+
+                sel.innerHTML = '<option value="">-- Erkannte Kamera oder Video auswählen --</option>';
+                (data.available_sources || []).forEach(item => {
+                    const opt = new Option(item.label, item.source);
+                    if (item.source === currentSrc) opt.selected = true;
+                    sel.add(opt);
+                });
+            } catch (e) {
+                sel.innerHTML = '<option value="">Fehler beim Kamera-Scan</option>';
+            }
+        }
+
+        function onDetectedSourcePick() {
+            const sel = document.getElementById('detectedSourcesSelect');
+            if (sel.value) {
+                document.getElementById('videoSourceInput').value = sel.value;
+                testVideoSource();
+            }
+        }
+
+        async function testVideoSource() {
+            const src = document.getElementById('videoSourceInput').value.trim();
+            const box = document.getElementById('videoProbeStatusBox');
+            const txt = document.getElementById('videoProbeStatusText');
+            const meta = document.getElementById('videoProbeMetaText');
+            const img = document.getElementById('videoProbePreviewImg');
+
+            box.style.display = 'flex';
+            img.style.display = 'none';
+            txt.style.color = '#f59e0b';
+            txt.textContent = '⏳ Prüfe Video-Quelle "' + src + '" auf gültiges Live-Bild...';
+            meta.textContent = 'Verbinde mit Kamera / Stream (Timeout: 4.5s)...';
+
+            try {
+                const res = await fetch('/api/configuration/video_source/test', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ source: src })
+                });
+                const data = await res.json();
+                if (res.ok && data.ok) {
+                    txt.style.color = '#34d399';
+                    txt.textContent = '✅ Bild-Check erfolgreich! Quelle liefert ein gültiges Live-Bild.';
+                    meta.textContent = `Quelle: ${data.meta.source} | Auflösung: ${data.meta.width}×${data.meta.height} px | FPS: ${data.meta.fps}`;
+                    if (data.preview_data_url) {
+                        img.src = data.preview_data_url;
+                        img.style.display = 'block';
+                    }
+                    toast('✅ Kamera/Stream Bild-Check OK!', '#34d399');
+                } else {
+                    txt.style.color = '#f87171';
+                    txt.textContent = '❌ Kein Bildsignal: ' + (data.error || 'Quelle konnte nicht geöffnet werden.');
+                    meta.textContent = 'Bitte USB-Verbindung (/dev/video*), RTSP-URL oder Dateipfad prüfen.';
+                    toast('❌ Bild-Check fehlgeschlagen!', '#f87171');
+                }
+            } catch (e) {
+                txt.style.color = '#f87171';
+                txt.textContent = '❌ Verbindungsfehler beim Prüfen der Video-Quelle.';
+            }
+        }
+
+        async function saveVideoSource() {
+            const src = document.getElementById('videoSourceInput').value.trim();
+            const box = document.getElementById('videoProbeStatusBox');
+            const txt = document.getElementById('videoProbeStatusText');
+            const meta = document.getElementById('videoProbeMetaText');
+            const img = document.getElementById('videoProbePreviewImg');
+
+            box.style.display = 'flex';
+            txt.style.color = '#f59e0b';
+            txt.textContent = '⏳ Prüfe Live-Bild vor dem Speichern & Umschalten...';
+
+            const res = await fetch('/api/configuration/video_source/save', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ source: src })
+            });
+            const data = await res.json();
+            if (res.ok && data.ok) {
+                txt.style.color = '#34d399';
+                txt.textContent = '✅ Video-Quelle geprüft, in config.yaml gespeichert & live umgeschaltet!';
+                meta.textContent = `Aktive Quelle: ${data.meta.source} (${data.meta.width}×${data.meta.height} @ ${data.meta.fps} FPS)`;
+                if (data.preview_data_url) {
+                    img.src = data.preview_data_url;
+                    img.style.display = 'block';
+                }
+                toast('✅ Live-Video-Quelle erfolgreich aktiviert!', '#34d399');
+                reloadCalibrationFrame();
+            } else {
+                txt.style.color = '#f87171';
+                txt.textContent = '❌ ' + (data.error || 'Speichern abgelehnt, da Quelle kein Bild liefert.');
+                toast('❌ Speichern abgelehnt (Kein Bildsignal)!', '#f87171');
+            }
+        }
+
+        reloadCalibrationFrame();
+        scanVideoSources();
+    </script>
+</body>
+</html>

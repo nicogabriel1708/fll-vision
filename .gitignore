@@ -1,0 +1,38 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Environment & Secrets (keep .env.example in Git)
+.env
+.env.local
+
+# SQLite Databases (created automatically by setup.sh / setup_db.py)
+data/db/*.sqlite3
+data/db/*.sqlite3-shm
+data/db/*.sqlite3-wal
+!data/db/.gitkeep
+
+# Generated Outputs, Logs & Datasets
+data/outputs/*
+!data/outputs/.gitkeep
+data/dataset/
+
+# Video files (keep empty folders via .gitkeep)
+data/videos/*
+!data/videos/.gitkeep
+data/training_videos/*
+!data/training_videos/.gitkeep
+
+# Compiled GPU TensorRT Engines & Training Checkpoints
+models/*.engine
+models/*.onnx
+models/fll_auto_train/
+models/fll_yolo11s_run/
+!models/.gitkeep
+
+# OS / Editor files
+.DS_Store
+.vscode/
+.idea/

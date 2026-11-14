@@ -1,0 +1,21 @@
+# Enforce LF line endings for all scripts, Python modules, configs, and Dockerfiles
+* text=auto eol=lf
+*.sh text eol=lf
+*.py text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.html text eol=lf
+*.css text eol=lf
+*.js text eol=lf
+*.md text eol=lf
+Dockerfile text eol=lf
+
+# Binary assets (Fonts, Audio SFX, Images, Model Weights)
+*.ttf binary
+*.otf binary
+*.mp3 binary
+*.png binary
+*.jpg binary
+*.pt binary
+*.engine binary
+*.sqlite3 binary

@@ -1,0 +1,126 @@
+# ==============================================================================
+# FLL-VISION v5 (Production): Dual Team-Table Streams & Unified Auto-Zoom Config
+# Optimized for NVIDIA DGX Spark (GB10 Grace Blackwell)
+#
+# Subpage Routes:
+#   - /               : Public Match-Stream (Read-Only, Dual Team Table Streams)
+#   - /control        : Volunteer Match Control Page (Mobile-Optimized)
+#   - /configuration  : Protected Backend Configuration, Crop, Zoom & Heatmaps
+#   - /admin          : Master Administrator User & Team Management
+# ==============================================================================
+
+project:
+  name: "fll-vision"
+  season: "FLL 2026/27 BIOGLOW"
+  log_level: "INFO"
+  database_path: "/workspace/data/db/fll_vision.sqlite3"
+  secret_key_env: "FLL_SECRET_KEY"
+
+video:
+  # Primary live camera source (default in production: connected USB camera /dev/video0;
+  # can be switched to RTSP or .mp4 live in /control or /configuration)
+  source: "/dev/video0"
+  # Optional second camera source for Table 2 (if empty/null, uses Table 2 crop from primary source)
+  source_table2: ""
+  training_videos_dir: "/workspace/data/training_videos"
+  width: 1920
+  height: 1080
+  fps: 60
+  use_hw_decode: true
+  save_annotated_video: true
+  output_dir: "/workspace/data/outputs"
+
+# Official FLL Table & Active Half-Table Masking Configuration
+table:
+  real_width_mm: 2362.0
+  real_height_mm: 1143.0
+  auto_detect_borders: true
+  # 4 inner corners of the FLL table in camera pixel coordinates:
+  # Order: [Top-Left, Top-Right, Bottom-Right, Bottom-Left]
+  src_corners_px:
+    - [210, 140]
+    - [1710, 140]
+    - [1860, 960]
+    - [60, 960]
+  # Optional second table corners if a second table is visible in the same frame or second camera
+  table2_corners_px:
+    - [210, 140]
+    - [1710, 140]
+    - [1860, 960]
+    - [60, 960]
+  apply_table_roi_mask: true
+  roi_padding_px: 15
+
+  # CRITICAL REQUIREMENT: Exclude unused half of the table (hands, bottles, etc.)
+  # Options: "left_half", "right_half", "full", "custom_ratio"
+  active_half_mode: "left_half"
+  active_x_ratio: [0.0, 0.50]
+  active_y_ratio: [0.0, 1.00]
+
+  # Launch Area / Home zones in millimeter table coordinates [x_min, y_min, x_max, y_max]
+  launch_areas_mm:
+    left_home: [0.0, 0.0, 650.0, 1143.0]
+    right_home: [1712.0, 0.0, 2362.0, 1143.0]
+
+# Dual Team-Table Streams & UNIFIED Robot Auto-Zoom Configuration
+# Both streams represent a competing team's table (Stream 1 = Team Left, Stream 2 = Team Right).
+# Neither stream shows a heatmap or HUD overlay; both use identical zoom & aspect settings.
+streams:
+  stream_width: 1080
+  stream_height: 1080
+  jpeg_quality: 85
+  target_fps: 60
+
+  auto_zoom:
+    enabled: true
+    # Unified zoom factor applied identically to both team streams (e.g. 2.2x zoom on robot)
+    zoom_factor: 2.2
+    # Minimum zoom factor when zoomed out / idle (1.0 = fits active table area without black bars)
+    idle_zoom_factor: 1.0
+    # Smooth exponential interpolation speed for camera pan & zoom (prevents jerky jumps)
+    pan_smoothing_alpha: 0.12
+    zoom_smoothing_alpha: 0.08
+    # Hold zoom on last known robot position for N frames before smoothly zooming out
+    hold_frames_before_zoom_out: 45
+    # Aspect-ratio border fix mode: "cover_crop" (zero side borders) or "blurred_backdrop"
+    border_fill_mode: "cover_crop"
+
+# Model & NVIDIA TensorRT Configuration (GB10 Blackwell sm_121)
+inference:
+  weights_pt: "/workspace/models/fll_yolo11s.pt"
+  engine_trt: "/workspace/models/fll_yolo11s.engine"
+  auto_export_trt: true
+  device: "cuda:0"
+  imgsz: 960
+  half_precision: true
+  conf_threshold: 0.40
+  iou_threshold: 0.45
+  max_det: 20
+  classes:
+    robot: 0
+    hand: 1
+    attachment_jig: 2
+
+# Tracking, Kalman Filter & Hand/Noise Rejection Logic
+tracker:
+  track_thresh: 0.45
+  match_thresh: 0.80
+  max_age_frames: 45
+  min_hits: 4
+  ema_alpha: 0.35
+  max_robot_speed_mm_s: 1200.0
+  stationary_noise_gate_mm: 4.0
+  hand_veto:
+    enabled: true
+    overlap_iou_threshold: 0.05
+    proximity_radius_mm: 180.0
+    cooldown_frames: 15
+
+# Web Server & WebSocket Hub
+server:
+  enabled: true
+  host: "0.0.0.0"
+  port: 8080
+  stream_jpeg_quality: 85
+  enable_heatmap: true
+  heatmap_decay: 0.998
