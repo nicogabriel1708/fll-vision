@@ -183,7 +183,8 @@ class FLLRobotTracker:
 			self.all_points.clear()
 
 	def _update_kalman_transition_matrix(self, dt: float):
-		dt = float(np.clip(dt, 1e-3, 1.0))
+		# Point #8 Fix: Do not artificially clamp dt at 1.0s; support longer frame gaps accurately
+		dt = float(np.clip(dt, 1e-4, max(15.0, self.max_age_seconds * 3.0)))
 		self.dt = dt
 		self.kf.F = np.array(
 			[
@@ -352,7 +353,7 @@ class FLLRobotTracker:
 		self._last_frame_idx = frame_idx
 
 		if self._last_timestamp is not None and now > self._last_timestamp:
-			real_dt = float(np.clip(now - self._last_timestamp, 1e-3, 1.0))
+			real_dt = float(np.clip(now - self._last_timestamp, 1e-4, max(15.0, self.max_age_seconds * 3.0)))
 		else:
 			real_dt = self.dt * frame_delta
 		self._last_timestamp = now
@@ -473,6 +474,7 @@ class FLLRobotTracker:
 
 		in_base, _ = self.homography.is_in_launch_area(self.smooth_x_mm, self.smooth_y_mm)
 
+		prev_state = self.state
 		if hand_touching or self.hand_cooldown > 0:
 			self.state = RobotState.MANIPULATED_BY_HAND
 			if self.runs and self.runs[-1].end_time is None and not in_base:
@@ -481,13 +483,18 @@ class FLLRobotTracker:
 		elif in_base:
 			self.state = RobotState.IN_BASE
 			self._close_open_run(now)
-		elif self.missed_frames > 12:
-			self.state = RobotState.OCCLUDED
+		elif self.missed_frames > 0:
+			# Point #7 Fix: During an occlusion (`self.missed_frames > 0`), NEVER transition
+			# from MANIPULATED_BY_HAND / IN_BASE / OCCLUDED into AUTONOMOUS and NEVER start a new run!
+			if prev_state == RobotState.AUTONOMOUS and self.missed_frames <= 12:
+				self.state = RobotState.AUTONOMOUS
+			elif prev_state == RobotState.MANIPULATED_BY_HAND:
+				self.state = RobotState.MANIPULATED_BY_HAND
+			else:
+				self.state = RobotState.OCCLUDED
 		else:
+			# `self.missed_frames == 0`: We have a confirmed live robot detection outside base without hands!
 			self.state = RobotState.AUTONOMOUS
-			# Group A #5 & Group B #6: Whenever robot is driving autonomously outside base
-			# and there is no open run (e.g. after leaving base OR after re-detection outside base),
-			# start a new SortieRun!
 			if not self.runs or self.runs[-1].end_time is not None:
 				self.current_run_id += 1
 				self.runs.append(

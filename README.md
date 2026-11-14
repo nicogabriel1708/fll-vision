@@ -2,22 +2,22 @@
 
 `fll-vision` ist ein vollständiges, produktionsreifes Computer-Vision-, Telemetrie- und Livestream-System für das **FIRST LEGO League (FLL) Robot Game**, speziell optimiert für den Betrieb in **einem einzigen Docker-Container** auf dem **NVIDIA DGX Spark (GB10 Grace Blackwell Superchip, 20-Core ARM64 CPU + SM 12.1 GPU, 128 GB Unified Memory)**.
 
-Das Repository vereint das KI-Backend (Multi-Class YOLO11 + NVIDIA TensorRT FP16, 4D-Kalman-Filter, Hand-Veto State Machine, Halbtisch-Maskierung, 2D-Heatmaps und paralleler Dual-Team-Auto-Zoom-Compositor) mit dem originalen `fll-robot-game-livestream` Frontend in einer einzigen Anwendung.
+Das Repository vereint das KI-Backend (Multi-Class YOLO11 + NVIDIA TensorRT FP16, 4D-Kalman-Filter, Hand-Veto State Machine, unabhängige 4-Ecken-Zwei-Tisch-Kalibrierung (exkl. Zwischenraum & Tischränder), ungestreckte Dual-2D-Heatmaps und paralleler Dual-Team-Auto-Zoom-Compositor) mit dem originalen `fll-robot-game-livestream` Frontend in einer einzigen Anwendung.
 
 --------------------------------------------------------------------------------
 
 ## 1\. Übersicht der Seiten, Routen & Benutzer (Pages, Routes & Users)
 
 Name der Seite           | Route            | Login-Route                    | User (Benutzer / Rolle)            | Beschreibung
-:----------------------- | :--------------- | :----------------------------- | :--------------------------------- | :-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+:----------------------- | :--------------- | :----------------------------- | :--------------------------------- | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 **Match-Stream**         | `/`              | `-` _(Öffentlich / Read-Only)_ | `-` _(Kein Login erforderlich)_    | Öffentlicher Livestream im exakten `fll-robot-game-livestream` Design (Orange Topbar, abgeschrägte Red/Blue Team-Banner in `CARDOT`, `8:88` 7-Segment-Timer in `Digital Dismay`, Original-Audio-SFX, Idle-Screen) mit beiden sauberen Team-Tisch-Streams nebeneinander (`/video-stream/red-team` & `/video-stream/blue-team`) bei identischem Auto-Zoom und ohne Heatmap/HUD.
 **Volunteer Control**    | `/control`       | `/login/control`               | **`volunteers`** _(sowie `admin`)_ | Mobile-optimierte Match-Steuerung für Volunteers: `.txt`-Teamlisten-Upload & Team-Auswahl (Red Team / Blue Team), Einstellen der Match- & Pre-Countdown-Zeiten, Start/Pause/Reset/Abort, Idle-Screen, Kamera-Swap, **Umschalten der Video-Quelle (Standard: USB-Kamera `/dev/video0`, oder RTSP-Link / `.mp4` mit Bild-Check vor dem Speichern)** sowie sämtliche Tastatur-Shortcuts (`Hold S`, `Hold R`, `Hold E`, `Space`, `A`/`Esc`, `W`, `↑`/`↓`).
 **System Configuration** | `/configuration` | `/login/configuration`         | **`engineers`** _(sowie `admin`)_  | Geschützte Backend-Konfigurationsseite mit 4 Menüs/Tabs auf derselben Seite:<br>
-
-1\. Video-Quellen-Auswahl (USB/RTSP/MP4 mit Bild-Check), Tisch-Größe, Selection-Box Crop & **Aktive Tischhälften-Maskierung** (ignoriert die ungenutzte Tischhälfte mit Händen/Flaschen sowie den Außenbereich)<br>
+1\. Zentrale Video-Quellen-Auswahl (1 Kamera über 2 FLL-Tischen mit Bild-Check) & **Unabhängige 4-Ecken-Kalibrierung für Tisch 1 (Links / Red Team) & Tisch 2 (Rechts / Blue Team)** (schließt den physischen Zwischenraum, die Tischränder sowie das jeweils andere Spielfeld strikt aus)<br>
 2\. **Einheitlicher Auto-Zoom-Faktor (`zoom_factor`)** für beide Team-Streams & 1:1 Seitenrand-Korrektur<br>
 3\. Live **2D Bird's-Eye Heatmap** & **Lauf-Dokumentation (Runs)** mit PNG-, CSV- & JSON-Export<br>
-4\. KI-Tracker-, Kalman- & Hand-Veto-Parameter **Admin Panel** | `/admin` | `/login/admin` | **`admin`** | Geschützte Benutzer- und Teamverwaltung für den Hauptadministrator (`admin`) zum Anlegen, Passwort-Ändern und Löschen von `volunteers`-, `engineers`- und `admin`-Benutzern sowie zur Pflege der FLL-Teams in der SQLite-Datenbank.
+4\. KI-Tracker-, Kalman- & Hand-Veto-Parameter
+**Admin Panel**          | `/admin`         | `/login/admin`                 | **`admin`**                        | Geschützte Benutzer- und Teamverwaltung für den Hauptadministrator (`admin`) zum Anlegen, Passwort-Ändern und Löschen von `volunteers`-, `engineers`- und `admin`-Benutzern sowie zur Pflege der FLL-Teams in der SQLite-Datenbank.
 
 --------------------------------------------------------------------------------
 
@@ -177,14 +177,14 @@ Ordner                      | Zweck                                             
 ### 1-Klick-Training mit deinen Videos (`./run_all.sh`)
 
 1. Lege deine Trainingsvideos in `data/training_videos/` ab.
-2. Wähle unter `/configuration` (Tab 1) die aktive Tischhälfte (`left_half` oder `right_half`), damit die ungenutzte Tischhälfte (Hände, Flaschen etc.) und der Außenbereich zu 100 % schwarz ausmaskiert werden.
+2. Kalibriere unter `/configuration` (Tab 1) unabhängig die 4 Spielfeldecken für **🟥 Tisch 1 (Links)** und **🟦 Tisch 2 (Rechts)** (der Zwischenraum zwischen den Tischen und der Außenbereich werden zu 100 % schwarz ausmaskiert; auch Trainingsvideos, in denen nur einer der beiden Tische bespielt wird, werden automatisch unterstützt).
 3. Starte das Training und den TensorRT-Export:
 
   ```bash
   ./run_all.sh
   ```
 
-  Das Skript extrahiert die maskierten Frames, annotiert `robot` und `hand` automatisch via `YOLO-World` + Bewegungsanalyse, trainiert `YOLO11s` auf der DGX Spark GPU und kompiliert das fertige Modell als **FP16 TensorRT Engine (`models/fll_yolo11s.engine`)**.
+   Das Skript extrahiert die perspektivisch maskierten Frames, annotiert `robot` und `hand` via `YOLO-World`, teilt das Dataset ohne Data-Leakage nach Videos/Zeitblöcken auf, trainiert `YOLO11s` auf der DGX Spark GPU und kompiliert das fertige Modell als **FP16 TensorRT Engine (`models/fll_yolo11s.engine`)**.
 
 --------------------------------------------------------------------------------
 

@@ -293,13 +293,17 @@ def step2_split_dataset(samples: List[SampleTuple], dataset_dir: Path, val_ratio
 	val_samples: List[SampleTuple] = []
 
 	if len(by_video) >= 2:
-		# Video-level split: assign whole videos to validation until ~val_ratio is reached
+		# Point #20 Fix: Compare remaining VIDEO count (`len(vid_names) - val_video_count > 1`)
+		# rather than comparing video count (`len(by_video)`) with image count (`len(val_samples)`)!
 		vid_names = sorted(by_video.keys(), key=lambda k: len(by_video[k]))
 		total_n = len(samples)
 		target_val = max(1, int(round(total_n * val_ratio)))
+		val_video_count = 0
 		for vname in vid_names:
-			if len(val_samples) < target_val and (len(by_video) - len(val_samples)) > 1:
+			remaining_videos = len(vid_names) - val_video_count
+			if len(val_samples) < target_val and remaining_videos > 1:
 				val_samples.extend(by_video[vname])
+				val_video_count += 1
 			else:
 				train_samples.extend(by_video[vname])
 		if not train_samples and val_samples:

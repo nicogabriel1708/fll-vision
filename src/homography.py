@@ -22,14 +22,30 @@ def order_quad_points(pts: np.ndarray) -> np.ndarray:
 	return rect
 
 
-def validate_quad_geometry(pts: np.ndarray, min_area_px: float = 2500.0, min_edge_px: float = 30.0) -> np.ndarray:
+def validate_quad_geometry(
+	pts: np.ndarray,
+	min_area_px: float = 2500.0,
+	min_edge_px: float = 30.0,
+	frame_size: Optional[Tuple[int, int]] = None,
+) -> np.ndarray:
 	"""
-	Validates that 4 corner points form a non-degenerate, convex quadrilateral (#16, #24).
-	Rejects NaN/Inf, collinear points, self-intersecting bowties, or tiny collapsed boxes.
+	Validates that 4 corner points form a non-degenerate, convex quadrilateral within camera bounds (#11, #16, #24).
+	Rejects NaN/Inf, out-of-frame coordinates, collinear points, self-intersecting bowties, or tiny collapsed boxes.
 	"""
 	raw = np.asarray(pts, dtype=np.float32)
 	if raw.shape != (4, 2) or not np.all(np.isfinite(raw)):
 		raise ValueError("Table corners must be exactly 4 finite [x, y] coordinate pairs.")
+
+	if frame_size is not None:
+		fw, fh = int(frame_size[0]), int(frame_size[1])
+		if fw > 0 and fh > 0:
+			if (
+				np.any(raw[:, 0] < 0.0)
+				or np.any(raw[:, 0] > float(fw))
+				or np.any(raw[:, 1] < 0.0)
+				or np.any(raw[:, 1] > float(fh))
+			):
+				raise ValueError(f"Table corners must lie within camera resolution bounds [0..{fw}] x [0..{fh}].")
 
 	ordered = order_quad_points(raw)
 	contour = ordered.reshape((4, 1, 2)).astype(np.float32)
@@ -50,6 +66,27 @@ def validate_quad_geometry(pts: np.ndarray, min_area_px: float = 2500.0, min_edg
 	return ordered
 
 
+def validate_tables_non_overlapping(
+	corners1_px: List[List[float]],
+	corners2_px: List[List[float]],
+	max_overlap_px: float = 1.0,
+) -> Tuple[np.ndarray, np.ndarray]:
+	"""
+	Validates that Table 1 and Table 2 quadrilaterals do not overlap (#10).
+	Returns the ordered (quad1, quad2) arrays if valid, otherwise raises ValueError.
+	"""
+	q1 = validate_quad_geometry(np.asarray(corners1_px, dtype=np.float32))
+	q2 = validate_quad_geometry(np.asarray(corners2_px, dtype=np.float32))
+
+	inter_area, _ = cv2.intersectConvexConvex(q1, q2)
+	if float(inter_area) > max_overlap_px:
+		raise ValueError(
+			f"Tisch 1 und Tisch 2 überschneiden sich um {float(inter_area):.1f} px²! "
+			f"Beide Spielfelder müssen inklusive Zwischenraum klar voneinander getrennt sein."
+		)
+	return q1, q2
+
+
 def detect_two_independent_tables(
 	frame: np.ndarray,
 	fallback_t1: List[List[float]],
@@ -57,8 +94,11 @@ def detect_two_independent_tables(
 ) -> Tuple[bool, List[List[float]], List[List[float]]]:
 	"""
 	Detects the 4 corners of Table 1 (Left) and Table 2 (Right) independently from a single
-	central camera frame, preserving the physical gap and table borders between them.
-	Never uses a naive 50/50 image split!
+	central camera frame (#1, #12):
+	  - Does NOT assume the camera is centered at 50% width (`0.48*w` / `0.52*w` cutoff removed) (#12).
+	  - Collects all valid convex table quadrilaterals and selects the highest-scoring non-overlapping pair,
+	    sorting the two tables by their horizontal centroid (left = Table 1, right = Table 2).
+	  - Returns `detected = True` ONLY when BOTH Table 1 and Table 2 were genuinely detected (#1).
 	"""
 	if frame is None or frame.size == 0:
 		return False, fallback_t1, fallback_t2
@@ -84,16 +124,15 @@ def detect_two_independent_tables(
 		),
 	]
 
-	left_quads: List[Tuple[float, np.ndarray]] = []
-	right_quads: List[Tuple[float, np.ndarray]] = []
+	candidate_quads: List[Tuple[float, np.ndarray]] = []
 
 	for binary in candidates_binary:
 		contours, _ = cv2.findContours(binary, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
-		contours = sorted(contours, key=cv2.contourArea, reverse=True)[:25]
+		contours = sorted(contours, key=cv2.contourArea, reverse=True)[:30]
 
 		for cnt in contours:
 			area = float(cv2.contourArea(cnt))
-			if area < 0.06 * img_area or area > 0.48 * img_area:
+			if area < 0.05 * img_area or area > 0.48 * img_area:
 				continue
 			hull = cv2.convexHull(cnt)
 			peri = cv2.arcLength(hull, True)
@@ -101,32 +140,49 @@ def detect_two_independent_tables(
 				approx = cv2.approxPolyDP(hull, eps_factor * peri, True)
 				if len(approx) == 4 and cv2.isContourConvex(approx):
 					try:
-						pts = validate_quad_geometry(approx.reshape(4, 2))
+						pts = validate_quad_geometry(approx.reshape(4, 2), frame_size=(w, h))
 					except ValueError:
 						break
-					cx = float(np.mean(pts[:, 0]))
 					score = area / img_area
-					if cx < 0.48 * w and np.max(pts[:, 0]) < 0.55 * w:
-						left_quads.append((score, pts))
-					elif cx > 0.52 * w and np.min(pts[:, 0]) > 0.45 * w:
-						right_quads.append((score, pts))
+					# Avoid duplicate candidates with almost identical corners
+					if all(
+						float(np.mean(np.linalg.norm(pts - existing_pts, axis=1))) > 25.0
+						for _, existing_pts in candidate_quads
+					):
+						candidate_quads.append((score, pts))
 					break
 
-	found_any = False
-	t1_out = fallback_t1
-	t2_out = fallback_t2
+	candidate_quads.sort(key=lambda item: item[0], reverse=True)
 
-	if left_quads:
-		left_quads.sort(key=lambda item: item[0], reverse=True)
-		t1_out = [[round(float(p[0]), 1), round(float(p[1]), 1)] for p in left_quads[0][1]]
-		found_any = True
+	# Find the highest-scoring non-overlapping pair of tables anywhere in the image (#1, #12)
+	best_pair: Optional[Tuple[np.ndarray, np.ndarray]] = None
+	best_pair_score = -1.0
 
-	if right_quads:
-		right_quads.sort(key=lambda item: item[0], reverse=True)
-		t2_out = [[round(float(p[0]), 1), round(float(p[1]), 1)] for p in right_quads[0][1]]
-		found_any = True
+	for i in range(len(candidate_quads)):
+		s1, q1 = candidate_quads[i]
+		for j in range(i + 1, len(candidate_quads)):
+			s2, q2 = candidate_quads[j]
+			inter_area, _ = cv2.intersectConvexConvex(q1, q2)
+			if float(inter_area) > 1.0:
+				continue
+			cx1 = float(np.mean(q1[:, 0]))
+			cx2 = float(np.mean(q2[:, 0]))
+			# Require horizontal separation between the two side-by-side tables
+			if abs(cx1 - cx2) < 0.15 * w:
+				continue
+			pair_score = s1 + s2
+			if pair_score > best_pair_score:
+				best_pair_score = pair_score
+				best_pair = (q1, q2) if cx1 < cx2 else (q2, q1)
 
-	return found_any, t1_out, t2_out
+	if best_pair is not None:
+		left_q, right_q = best_pair
+		t1_out = [[round(float(p[0]), 1), round(float(p[1]), 1)] for p in left_q]
+		t2_out = [[round(float(p[0]), 1), round(float(p[1]), 1)] for p in right_q]
+		return True, t1_out, t2_out
+
+	# Point #1 Fix: If fewer than 2 non-overlapping tables were found, return False!
+	return False, fallback_t1, fallback_t2
 
 
 class TableHomography:
@@ -136,13 +192,14 @@ class TableHomography:
 	2D Bird's-Eye View warping.
 	"""
 
-	def __init__(self, cfg: TableConfig, minimap_base_height: int = 540):
+	def __init__(self, cfg: TableConfig, minimap_base_height: int = 540, frame_size: Tuple[int, int] = (1920, 1080)):
 		self.cfg = cfg
 		self.real_w = cfg.real_width_mm
 		self.real_h = cfg.real_height_mm
 		self.minimap_base_height = int(minimap_base_height)
 		self.minimap_w = 960
 		self.minimap_h = 540
+		self.frame_size: Tuple[int, int] = frame_size
 		self._lock = threading.Lock()
 
 		self._cached_mask: Optional[np.ndarray] = None
@@ -154,6 +211,7 @@ class TableHomography:
 			active_half_mode=cfg.active_half_mode,
 			active_x_ratio=cfg.active_x_ratio,
 			active_y_ratio=cfg.active_y_ratio,
+			frame_size=frame_size,
 		)
 
 	def _compute_active_ratios(
@@ -176,93 +234,178 @@ class TableHomography:
 			ry1 = float(np.clip(max(y_ratio), ry0 + 0.05, 1.0))
 			return (rx0, rx1), (ry0, ry1)
 
+	def _compute_validated_state(
+		self,
+		corners_px: List[List[float]],
+		active_half_mode: Optional[str] = None,
+		active_x_ratio: Optional[List[float]] = None,
+		active_y_ratio: Optional[List[float]] = None,
+		frame_size: Optional[Tuple[int, int]] = None,
+	) -> dict:
+		"""
+		Point #5 & #11 Fix: Computes and validates all geometry, ratios, and homography matrices
+		purely in local variables WITHOUT mutating `self` or `self.cfg`.
+		If any validation check fails, raises ValueError while leaving the instance untouched!
+		"""
+		eff_frame_size = frame_size if frame_size is not None else self.frame_size
+		src_pts = validate_quad_geometry(np.array(corners_px, dtype=np.float32), frame_size=eff_frame_size)
+		ordered_corners = [[round(float(p[0]), 1), round(float(p[1]), 1)] for p in src_pts]
+
+		eff_mode = active_half_mode if active_half_mode is not None else self.cfg.active_half_mode
+		eff_x_in = list(active_x_ratio) if active_x_ratio is not None else list(self.cfg.active_x_ratio)
+		eff_y_in = list(active_y_ratio) if active_y_ratio is not None else list(self.cfg.active_y_ratio)
+
+		(rx0, rx1), (ry0, ry1) = self._compute_active_ratios(eff_mode, eff_x_in, eff_y_in)
+
+		top_w = float(np.linalg.norm(src_pts[1] - src_pts[0]))
+		bot_w = float(np.linalg.norm(src_pts[2] - src_pts[3]))
+		left_h = float(np.linalg.norm(src_pts[3] - src_pts[0]))
+		right_h = float(np.linalg.norm(src_pts[2] - src_pts[1]))
+		avg_w = max(64.0, 0.5 * (top_w + bot_w))
+		avg_h = max(64.0, 0.5 * (left_h + right_h))
+		quad_aspect = float(np.clip(avg_w / avg_h, 0.45, 3.6))
+
+		minimap_h = self.minimap_base_height
+		minimap_w = max(240, int(round(minimap_h * quad_aspect)))
+
+		dst_pts_mm = np.array(
+			[
+				[0.0, 0.0],
+				[self.real_w, 0.0],
+				[self.real_w, self.real_h],
+				[0.0, self.real_h],
+			],
+			dtype=np.float32,
+		)
+
+		H_px2mm = cv2.getPerspectiveTransform(src_pts, dst_pts_mm)
+		H_mm2px = cv2.getPerspectiveTransform(dst_pts_mm, src_pts)
+		det_val = float(abs(np.linalg.det(H_px2mm)))
+		cond_val = float(np.linalg.cond(H_px2mm))
+		if det_val < 1e-11 or not np.isfinite(cond_val) or cond_val > 1e9:
+			raise ValueError(f"Ill-conditioned homography matrix (det={det_val:.2e}, cond={cond_val:.2e}).")
+
+		dst_pts_minimap = np.array(
+			[
+				[0.0, 0.0],
+				[float(minimap_w), 0.0],
+				[float(minimap_w), float(minimap_h)],
+				[0.0, float(minimap_h)],
+			],
+			dtype=np.float32,
+		)
+		H_px_to_minimap = cv2.getPerspectiveTransform(src_pts, dst_pts_minimap)
+
+		active_mm_quad = np.array(
+			[
+				[
+					[rx0 * self.real_w, ry0 * self.real_h],
+					[rx1 * self.real_w, ry0 * self.real_h],
+					[rx1 * self.real_w, ry1 * self.real_h],
+					[rx0 * self.real_w, ry1 * self.real_h],
+				]
+			],
+			dtype=np.float32,
+		)
+		active_quad_px = cv2.perspectiveTransform(active_mm_quad, H_mm2px)[0]
+
+		return {
+			"ordered_corners": ordered_corners,
+			"active_half_mode": eff_mode,
+			"active_x_ratio": [rx0, rx1],
+			"active_y_ratio": [ry0, ry1],
+			"minimap_w": minimap_w,
+			"minimap_h": minimap_h,
+			"H_px_to_mm": H_px2mm,
+			"H_mm_to_px": H_mm2px,
+			"H_px_to_minimap": H_px_to_minimap,
+			"active_quad_px": active_quad_px,
+			"frame_size": eff_frame_size,
+		}
+
+	def _apply_validated_state_unlocked(self, st: dict) -> List[List[float]]:
+		self.frame_size = st["frame_size"]
+		self.cfg.src_corners_px = st["ordered_corners"]
+		self.cfg.active_half_mode = st["active_half_mode"]
+		self.cfg.active_x_ratio = st["active_x_ratio"]
+		self.cfg.active_y_ratio = st["active_y_ratio"]
+		self.minimap_w = st["minimap_w"]
+		self.minimap_h = st["minimap_h"]
+		self.H_px_to_mm = st["H_px_to_mm"]
+		self.H_mm_to_px = st["H_mm_to_px"]
+		self.H_px_to_minimap = st["H_px_to_minimap"]
+		self._active_quad_px = st["active_quad_px"]
+		self._cached_mask = None
+		return self.cfg.src_corners_px
+
 	def update_calibration(
 		self,
 		corners_px: List[List[float]],
 		active_half_mode: Optional[str] = None,
 		active_x_ratio: Optional[List[float]] = None,
 		active_y_ratio: Optional[List[float]] = None,
+		frame_size: Optional[Tuple[int, int]] = None,
 	) -> List[List[float]]:
 		"""
-		Hot-reloads the 4 table corners and active ratios at runtime.
-		Validates convexity and matrix conditioning, and computes a non-stretched minimap size.
+		Atomically hot-reloads the 4 table corners and active ratios at runtime (#5).
+		If validation or matrix conditioning fails, neither `self` nor `self.cfg` is modified.
 		"""
 		with self._lock:
-			src_pts = validate_quad_geometry(np.array(corners_px, dtype=np.float32))
-			self.cfg.src_corners_px = [[round(float(p[0]), 1), round(float(p[1]), 1)] for p in src_pts]
-
-			if active_half_mode is not None:
-				self.cfg.active_half_mode = active_half_mode
-			if active_x_ratio is not None:
-				self.cfg.active_x_ratio = list(active_x_ratio)
-			if active_y_ratio is not None:
-				self.cfg.active_y_ratio = list(active_y_ratio)
-
-			(rx0, rx1), (ry0, ry1) = self._compute_active_ratios(
-				self.cfg.active_half_mode, self.cfg.active_x_ratio, self.cfg.active_y_ratio
+			st = self._compute_validated_state(
+				corners_px=corners_px,
+				active_half_mode=active_half_mode,
+				active_x_ratio=active_x_ratio,
+				active_y_ratio=active_y_ratio,
+				frame_size=frame_size,
 			)
-			self.cfg.active_x_ratio = [rx0, rx1]
-			self.cfg.active_y_ratio = [ry0, ry1]
+			return self._apply_validated_state_unlocked(st)
 
-			top_w = float(np.linalg.norm(src_pts[1] - src_pts[0]))
-			bot_w = float(np.linalg.norm(src_pts[2] - src_pts[3]))
-			left_h = float(np.linalg.norm(src_pts[3] - src_pts[0]))
-			right_h = float(np.linalg.norm(src_pts[2] - src_pts[1]))
-			avg_w = max(64.0, 0.5 * (top_w + bot_w))
-			avg_h = max(64.0, 0.5 * (left_h + right_h))
-			quad_aspect = float(np.clip(avg_w / avg_h, 0.45, 3.6))
-
-			self.minimap_h = self.minimap_base_height
-			self.minimap_w = max(240, int(round(self.minimap_h * quad_aspect)))
-
-			dst_pts_mm = np.array(
-				[
-					[0.0, 0.0],
-					[self.real_w, 0.0],
-					[self.real_w, self.real_h],
-					[0.0, self.real_h],
-				],
-				dtype=np.float32,
+	@staticmethod
+	def update_dual_calibration_atomic(
+		homography1: "TableHomography",
+		homography2: "TableHomography",
+		corners1_px: List[List[float]],
+		corners2_px: List[List[float]],
+		active_half_mode1: Optional[str] = None,
+		active_x_ratio1: Optional[List[float]] = None,
+		active_y_ratio1: Optional[List[float]] = None,
+		active_half_mode2: Optional[str] = None,
+		active_x_ratio2: Optional[List[float]] = None,
+		active_y_ratio2: Optional[List[float]] = None,
+		frame_size: Optional[Tuple[int, int]] = None,
+	) -> Tuple[List[List[float]], List[List[float]]]:
+		"""
+		Points #4, #5, #10, #11 Fix: Validates BOTH Table 1 and Table 2 (including frame bounds,
+		matrix conditioning, and non-overlap between Table 1 and Table 2) BEFORE committing
+		changes to either homography instance!
+		If Table 2 fails or overlaps Table 1, Table 1 remains 100% untouched.
+		"""
+		with homography1._lock, homography2._lock:
+			st1 = homography1._compute_validated_state(
+				corners_px=corners1_px,
+				active_half_mode=active_half_mode1,
+				active_x_ratio=active_x_ratio1,
+				active_y_ratio=active_y_ratio1,
+				frame_size=frame_size,
 			)
-
-			H_px2mm = cv2.getPerspectiveTransform(src_pts, dst_pts_mm)
-			H_mm2px = cv2.getPerspectiveTransform(dst_pts_mm, src_pts)
-			det_val = float(abs(np.linalg.det(H_px2mm)))
-			cond_val = float(np.linalg.cond(H_px2mm))
-			if det_val < 1e-11 or not np.isfinite(cond_val) or cond_val > 1e9:
-				raise ValueError(f"Ill-conditioned homography matrix (det={det_val:.2e}, cond={cond_val:.2e}).")
-			self.H_px_to_mm = H_px2mm
-			self.H_mm_to_px = H_mm2px
-
-			dst_pts_minimap = np.array(
-				[
-					[0.0, 0.0],
-					[float(self.minimap_w), 0.0],
-					[float(self.minimap_w), float(self.minimap_h)],
-					[0.0, float(self.minimap_h)],
-				],
-				dtype=np.float32,
+			st2 = homography2._compute_validated_state(
+				corners_px=corners2_px,
+				active_half_mode=active_half_mode2,
+				active_x_ratio=active_x_ratio2,
+				active_y_ratio=active_y_ratio2,
+				frame_size=frame_size,
 			)
-			self.H_px_to_minimap = cv2.getPerspectiveTransform(src_pts, dst_pts_minimap)
+			# Check non-overlap on both full table quads and active quads (#10)
+			validate_tables_non_overlapping(st1["ordered_corners"], st2["ordered_corners"])
 
-			active_mm_quad = np.array(
-				[
-					[
-						[rx0 * self.real_w, ry0 * self.real_h],
-						[rx1 * self.real_w, ry0 * self.real_h],
-						[rx1 * self.real_w, ry1 * self.real_h],
-						[rx0 * self.real_w, ry1 * self.real_h],
-					]
-				],
-				dtype=np.float32,
-			)
-			self._active_quad_px = cv2.perspectiveTransform(active_mm_quad, self.H_mm_to_px)[0]
+			c1 = homography1._apply_validated_state_unlocked(st1)
+			c2 = homography2._apply_validated_state_unlocked(st2)
+			return c1, c2
 
-			self._cached_mask = None
-			return self.cfg.src_corners_px
-
-	def update_corners(self, corners_px: List[List[float]]) -> List[List[float]]:
-		return self.update_calibration(corners_px=corners_px)
+	def update_corners(
+		self, corners_px: List[List[float]], frame_size: Optional[Tuple[int, int]] = None
+	) -> List[List[float]]:
+		return self.update_calibration(corners_px=corners_px, frame_size=frame_size)
 
 	def get_active_quad_px(self) -> List[List[float]]:
 		with self._lock:
@@ -279,10 +422,6 @@ class TableHomography:
 		return x1, y1, x2, y2
 
 	def is_mm_in_active_zone(self, x_mm: float, y_mm: float, margin_mm: float = 45.0) -> bool:
-		"""
-		Checks if a millimeter coordinate lies inside this table's configured active zone.
-		Uses a tight `margin_mm` (45 mm) so the inter-table gap and neighboring table are strictly excluded.
-		"""
 		with self._lock:
 			rx0, rx1 = self.cfg.active_x_ratio
 			ry0, ry1 = self.cfg.active_y_ratio
@@ -328,7 +467,6 @@ class TableHomography:
 		return cv2.bitwise_and(frame, frame, mask=mask_ref)
 
 	def auto_detect_corners(self, frame: np.ndarray, apply_immediately: bool = False) -> Tuple[bool, List[List[float]]]:
-		"""Detects the 4 corners of this table from a camera frame."""
 		h, w = frame.shape[:2]
 		img_area = float(h * w)
 		gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -353,7 +491,7 @@ class TableHomography:
 				approx = cv2.approxPolyDP(hull, eps_factor * peri, True)
 				if len(approx) == 4 and cv2.isContourConvex(approx):
 					try:
-						pts = validate_quad_geometry(approx.reshape(4, 2))
+						pts = validate_quad_geometry(approx.reshape(4, 2), frame_size=(w, h))
 					except ValueError:
 						break
 					score = area / img_area
@@ -365,7 +503,7 @@ class TableHomography:
 		if best_quad is not None:
 			detected_list = [[round(float(p[0]), 1), round(float(p[1]), 1)] for p in best_quad]
 			if apply_immediately:
-				self.update_corners(detected_list)
+				self.update_corners(detected_list, frame_size=(w, h))
 			return True, detected_list
 
 		return False, self.cfg.src_corners_px
@@ -395,10 +533,6 @@ class TableHomography:
 		return int(np.clip(mx, 0, mw - 1)), int(np.clip(my, 0, mh - 1))
 
 	def warp_to_minimap(self, frame: np.ndarray, active_only: bool = True) -> np.ndarray:
-		"""
-		Warps this table's region from the shared camera view into an aspect-ratio-preserving
-		2D Bird's-Eye View of this table.
-		"""
 		with self._lock:
 			H = self.H_px_to_minimap.copy()
 			mw, mh = self.minimap_w, self.minimap_h

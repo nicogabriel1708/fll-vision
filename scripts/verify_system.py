@@ -244,6 +244,8 @@ def run_all_checks():
 			tracker_table2=tracker2,
 		)
 
+		# Point #21 Fix: Test independent simultaneous tracking of BOTH Table 1 (Left) and Table 2 (Right)
+		# from the same shared central camera frame, verifying zero cross-talk between the two trackers!
 		reader = AsyncVideoReader(demo_vid, target_fps=60.0, loop_file=True, use_native_fps=False).start()
 		frame_count = 0
 		last_id = 0
@@ -254,40 +256,77 @@ def run_all_checks():
 			if frame is None:
 				continue
 			frame_count += 1
-			rx_px = 320 + frame_count * 12
-			ry_px = 520
-			fake_dets = [
+			# Robot 1 drives rightward across Table 1 (Left: x=320..680, y=520)
+			rx1_px = 320 + frame_count * 12
+			ry1_px = 520
+			# Robot 2 drives leftward/upward across Table 2 (Right: x=1650..1350, y=680..380)
+			rx2_px = 1650 - frame_count * 10
+			ry2_px = 680 - frame_count * 8
+			dets_t1 = [
 				Detection(
-					bbox_xyxy=np.array([rx_px - 35, ry_px - 35, rx_px + 35, ry_px + 35], dtype=float),
+					bbox_xyxy=np.array([rx1_px - 35, ry1_px - 35, rx1_px + 35, ry1_px + 35], dtype=float),
 					confidence=0.92,
 					class_id=0,
 					class_name="robot",
 				),
+			]
+			dets_t2 = [
 				Detection(
-					bbox_xyxy=np.array([1460.0, 500.0, 1540.0, 580.0], dtype=float),
-					confidence=0.95,
+					bbox_xyxy=np.array([rx2_px - 35, ry2_px - 35, rx2_px + 35, ry2_px + 35], dtype=float),
+					confidence=0.94,
 					class_id=0,
 					class_name="robot",
 				),
 			]
-			pt = tracker.update(frame_count, fake_dets, timestamp=1000.0 + frame_count * 0.033)
-			annotated, minimap = visualizer.render(frame, fake_dets, tracker, pt, 60.0)
+			ts_now = 1000.0 + frame_count * 0.033
+			# Pass both detections to both trackers to prove each tracker strictly ignores the other table's robot!
+			combined_dets = dets_t1 + dets_t2
+			pt1 = tracker.update(frame_count, combined_dets, timestamp=ts_now)
+			pt2 = tracker2.update(frame_count, combined_dets, timestamp=ts_now)
+			assert pt1 is not None and pt2 is not None
+			assert pt1.table_id == 1 and pt2.table_id == 2
+
+			annotated, minimap = visualizer.render(
+				frame,
+				dets_t1,
+				tracker,
+				pt1,
+				60.0,
+				detections_table2=dets_t2,
+				tracker_table2=tracker2,
+				latest_point_table2=pt2,
+			)
 			s1, s2 = compositor.compose_streams(
 				raw_frame_table1=frame,
 				annotated_frame=annotated,
 				minimap_frame=minimap,
-				latest_point_table1=pt,
+				latest_point_table1=pt1,
+				raw_frame_table2=frame,
+				latest_point_table2=pt2,
 			)
 			assert s1.shape == (1080, 1080, 3) and s2.shape == (1080, 1080, 3)
-			# Table 1 and Table 2 extract distinct physical regions from the central camera frame!
 			assert not np.array_equal(s1, s2)
-			srv.update_state(frame, annotated, minimap, s1, s2, {"fps": 60.0, "state": tracker.state.value})
+			srv.update_state(
+				frame,
+				annotated,
+				minimap,
+				s1,
+				s2,
+				{"fps": 60.0, "state": tracker.state.value, "state_table2": tracker2.state.value},
+			)
 			if frame_count >= 30:
 				break
 
 		reader.release()
 		assert frame_count == 30
-		assert tracker.state == RobotState.AUTONOMOUS
+		assert tracker.state == RobotState.AUTONOMOUS and len(tracker.runs) == 1
+		assert tracker2.state == RobotState.AUTONOMOUS and len(tracker2.runs) == 1
+		# Verify trajectories of Table 1 and Table 2 moved in opposite directions independently!
+		assert tracker.runs[0].points[-1].x_mm > tracker.runs[0].points[0].x_mm
+		assert tracker2.runs[0].points[-1].x_mm < tracker2.runs[0].points[0].x_mm
+		assert np.any(visualizer.heatmap > 0) and np.any(visualizer.heatmap2 > 0)
+		visualizer.reset_heatmaps()
+		assert np.all(visualizer.heatmap == 0) and np.all(visualizer.heatmap2 == 0)
 		assert srv._get_stream_jpeg(1) is not None
 		assert srv._get_stream_jpeg(2) is not None
 	print("[PASS 6/7] AsyncVideoReader, Pre-Save Frame Check, Hand-Veto tracker & Parallel Streams verified.")

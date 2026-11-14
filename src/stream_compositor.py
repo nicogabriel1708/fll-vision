@@ -253,8 +253,11 @@ class DualStreamCompositor:
 		(e.g. unit test mode), falls back to latest_point_table1; when homography2 is distinct,
 		Table 1 and Table 2 zoom independently on their respective robots.
 		"""
-		frame1 = raw_frame_table1
-		frame2 = raw_frame_table2 if raw_frame_table2 is not None else raw_frame_table1
+		# Point #9 Fix: Extract each table's perspective polygon first (`apply_roi_mask`)
+		# so the rectangular viewport crop never includes the inter-table gap or the other table!
+		frame1 = self.homography1.apply_roi_mask(raw_frame_table1)
+		raw2 = raw_frame_table2 if raw_frame_table2 is not None else raw_frame_table1
+		frame2 = self.homography2.apply_roi_mask(raw2)
 		pt1 = latest_point_table1
 		if latest_point_table2 is not None:
 			pt2 = latest_point_table2

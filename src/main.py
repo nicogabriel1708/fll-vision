@@ -362,6 +362,7 @@ def run_pipeline(config_path: str):
 	# Point #17 & Group A #1: Retry auto-detection until it succeeds (up to 25 attempts every 15 frames)
 	auto_detect_succeeded = False
 	auto_detect_attempts = 0
+	force_recal_on_switch = False
 
 	logger.info("Starting FLL-Vision Dual-Table Hybrid Motion+GPU inference loop...")
 	try:
@@ -385,36 +386,45 @@ def run_pipeline(config_path: str):
 				tracker1.reset(clear_runs=False)
 				tracker2.reset(clear_runs=False)
 
-			# Point #6: If camera source was switched at runtime, trigger fresh auto-calibration check
+			# Point #15 Fix: If camera source was switched or auto-detect was enabled at runtime,
+			# force a fresh recalibration cycle even if `auto_detect_borders` was previously False!
 			if server is not None and getattr(server, "needs_recalibration", False):
 				server.needs_recalibration = False
+				force_recal_on_switch = True
 				auto_detect_succeeded = False
 				auto_detect_attempts = 0
 
 			t_proc_start = time.perf_counter()
 
 			try:
-				# Point #17 & Group A #1: Retry auto_detect_borders until a valid table quad is found
+				# Points #1, #4, #14, #15 Fix: Atomic dual-table auto-detection with heatmap reset
 				if (
-					cfg.table.auto_detect_borders
+					(cfg.table.auto_detect_borders or force_recal_on_switch)
 					and not auto_detect_succeeded
 					and auto_detect_attempts < 25
-					and (frame_idx == 1 or frame_idx % 15 == 0)
+					and (frame_idx == 1 or auto_detect_attempts == 0 or frame_idx % 15 == 0)
 				):
 					auto_detect_attempts += 1
+					fh_f, fw_f = frame.shape[:2]
 					ok, t1_c, t2_c = detect_two_independent_tables(
 						frame, homography1.cfg.src_corners_px, homography2.cfg.src_corners_px
 					)
 					if ok:
 						try:
-							homography1.update_corners(t1_c)
-							homography2.update_corners(t2_c)
-							cfg.table.src_corners_px = homography1.cfg.src_corners_px
-							cfg.table.table2_corners_px = homography2.cfg.src_corners_px
+							c1_new, c2_new = TableHomography.update_dual_calibration_atomic(
+								homography1, homography2, t1_c, t2_c, frame_size=(fw_f, fh_f)
+							)
+							cfg.table.src_corners_px = c1_new
+							cfg.table.table2_corners_px = c2_new
+							visualizer.reset_heatmaps()
+							compositor.reset_viewports()
+							tracker1.reset(clear_runs=False)
+							tracker2.reset(clear_runs=False)
 							auto_detect_succeeded = True
+							force_recal_on_switch = False
 							logger.info(
 								f"Auto-detected Table 1 & Table 2 on attempt #{auto_detect_attempts} "
-								f"(frame #{frame_idx}): T1={t1_c}, T2={t2_c}"
+								f"(frame #{frame_idx}): T1={c1_new}, T2={c2_new}"
 							)
 						except ValueError as val_err:
 							logger.warning(f"Auto-detect candidate rejected by geometry validator: {val_err}")
@@ -547,6 +557,8 @@ def run_pipeline(config_path: str):
 						telemetry=telemetry,
 					)
 			except Exception as frame_exc:
+				if server is not None:
+					server.record_frame_error(str(frame_exc))
 				logger.error(f"Error processing frame #{frame_idx}: {frame_exc}", exc_info=True)
 
 	except KeyboardInterrupt:

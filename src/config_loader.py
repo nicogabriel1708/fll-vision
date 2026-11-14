@@ -71,6 +71,42 @@ def _parse_yaml_fallback(text: str) -> dict:
 	return root
 
 
+def _format_yaml_scalar(val) -> str:
+	if isinstance(val, bool):
+		return "true" if val else "false"
+	if val is None:
+		return "null"
+	if isinstance(val, (int, float)):
+		return str(val)
+	s = str(val)
+	if s == "" or any(ch in s for ch in (":", "#", "[", "]", "{", "}", ",", " ")):
+		escaped = s.replace('"', '\\"')
+		return f'"{escaped}"'
+	return s
+
+
+def _dump_yaml_fallback(data: dict, indent: int = 0) -> str:
+	"""Pure-Python YAML serializer fallback when PyYAML is not installed (#19)."""
+	lines: List[str] = []
+	prefix = " " * indent
+	for key, val in data.items():
+		if isinstance(val, dict):
+			lines.append(f"{prefix}{key}:")
+			lines.append(_dump_yaml_fallback(val, indent + 2))
+		elif isinstance(val, list):
+			if val and all(isinstance(item, list) for item in val):
+				lines.append(f"{prefix}{key}:")
+				for sub in val:
+					inner = ", ".join(_format_yaml_scalar(x) for x in sub)
+					lines.append(f"{prefix}  - [{inner}]")
+			else:
+				inner = ", ".join(_format_yaml_scalar(x) for x in val)
+				lines.append(f"{prefix}{key}: [{inner}]")
+		else:
+			lines.append(f"{prefix}{key}: {_format_yaml_scalar(val)}")
+	return "\n".join(lines) + ("\n" if indent == 0 else "")
+
+
 def _parse_scalar(val_str: str):
 	low = val_str.lower()
 	if low == "true":
@@ -320,10 +356,13 @@ def save_config_updates_to_yaml(
 ):
 	"""Persists independent Table 1 & Table 2 corners, active zones, zoom, tracker & video source to config.yaml."""
 	config_path = Path(path)
-	if not config_path.exists() or yaml is None:
-		return
+	if not config_path.exists():
+		raise FileNotFoundError(f"Configuration file not found for saving: {config_path}")
 	with open(config_path, "r", encoding="utf-8") as f:
-		raw = yaml.safe_load(f) or {}
+		if yaml is not None:
+			raw = yaml.safe_load(f) or {}
+		else:
+			raw = _parse_yaml_fallback(f.read())
 
 	raw.setdefault("video", {})
 	raw.setdefault("table", {})
@@ -383,4 +422,7 @@ def save_config_updates_to_yaml(
 		raw["inference"]["conf_threshold"] = round(float(conf_threshold), 3)
 
 	with open(config_path, "w", encoding="utf-8") as f:
-		yaml.safe_dump(raw, f, sort_keys=False, default_flow_style=False)
+		if yaml is not None:
+			yaml.safe_dump(raw, f, sort_keys=False, default_flow_style=False)
+		else:
+			f.write(_dump_yaml_fallback(raw))

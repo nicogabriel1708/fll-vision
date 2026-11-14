@@ -41,6 +41,12 @@ class FLLVisualizer:
 			else None
 		)
 
+	def reset_heatmaps(self):
+		"""Resets both Table 1 and Table 2 heatmaps to zero (e.g. on recalibration or camera switch, #14)."""
+		self.heatmap = np.zeros((self.homography.minimap_h, self.homography.minimap_w), dtype=np.float32)
+		if self.homography2 is not None:
+			self.heatmap2 = np.zeros((self.homography2.minimap_h, self.homography2.minimap_w), dtype=np.float32)
+
 	def _render_single_table_minimap(
 		self,
 		frame: np.ndarray,

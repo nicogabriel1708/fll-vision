@@ -2,7 +2,7 @@ import logging
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 import cv2
 import numpy as np
@@ -24,7 +24,7 @@ class Detection:
 	confidence: float
 	class_id: int
 	class_name: str
-	source: str = "ai"  # "ai", "hybrid", or "motion"
+	source: str = "ai"  # "ai" or "hybrid"
 
 	@property
 	def center_px(self) -> tuple[float, float]:
@@ -72,10 +72,12 @@ class FLLDetector:
 	Key Guarantees:
 	  - Reconciles `cfg.classes` dynamically against `self.model.names`.
 	  - Detects stale `.engine` files (`pt_mtime > engine_mtime`) and falls back to `.pt` on load or runtime errors.
-	  - Shadow-resilient & illumination-gated MOG2 motion analysis (`detectShadows=True`, threshold > 200) (#11).
-	  - Evaluates multi-frame motion history (`_motion_tracks[table_id]`) to verify genuine directional travel (#9).
-	  - Never promotes unassociated motion blobs to false robots; motion only bridges short AI dropouts near
-	    confirmed robot trajectories (#10).
+	  - Point #2 Fix: Runs AI detection with a dedicated `max_det` budget per table so Table 1 and Table 2
+	    never share or starve each other's detection limit.
+	  - Point #3 Fix: Motion blobs NEVER fabricate standalone robot detections without AI confirmation;
+	    verified motion is used strictly to confirm and boost AI robot candidates (`source="hybrid"`).
+	  - Point #6 Fix: Strictly 1-to-1 greedy assignment between current motion contours and previous
+	    motion tracks so multiple contours never claim the same track history.
 	"""
 
 	def __init__(self, cfg: InferenceConfig):
@@ -91,18 +93,20 @@ class FLLDetector:
 		self.total_errors: int = 0
 		self.last_error: Optional[str] = None
 
-		# Per-table MOG2 subtractors & multi-frame motion history (#7, #9, #10, #11)
 		self._bg_subtractors: Dict[int, cv2.BackgroundSubtractorMOG2] = {}
 		self._motion_step: Dict[int, int] = {}
 		self._motion_tracks: Dict[int, List[Dict[str, float]]] = {}
-		self._last_confirmed_robot: Dict[int, Tuple[float, float, int]] = {}
 		self._morph_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
 
 		if YOLO is None:
-			logger.warning("Ultralytics YOLO package not installed; detector running in motion-only mode.")
+			logger.warning("Ultralytics YOLO package not installed; detector unavailable.")
 			return
 
 		self._initialize_model_with_fallbacks()
+
+	def is_ready(self) -> bool:
+		"""Returns True if the underlying YOLO/TensorRT model is loaded and operational (#17)."""
+		return self.model is not None and self.consecutive_errors < 5
 
 	def _resolve_pt_weights_path(self) -> Optional[Path]:
 		pt_path = Path(self.cfg.weights_pt)
@@ -212,21 +216,17 @@ class FLLDetector:
 		self._try_load_and_warmup("yolo11s.pt", is_engine=False)
 
 	def reset_motion_history(self, table_id: Optional[int] = None):
-		"""Resets MOG2 background models, multi-frame motion tracks, and last robot anchors (#7)."""
 		if table_id is None:
 			self._bg_subtractors.clear()
 			self._motion_step.clear()
 			self._motion_tracks.clear()
-			self._last_confirmed_robot.clear()
 		else:
 			self._bg_subtractors.pop(table_id, None)
 			self._motion_step.pop(table_id, None)
 			self._motion_tracks.pop(table_id, None)
-			self._last_confirmed_robot.pop(table_id, None)
 
 	def _get_bg_subtractor(self, table_id: int) -> cv2.BackgroundSubtractorMOG2:
 		if table_id not in self._bg_subtractors:
-			# Point #11 Fix: Enable detectShadows=True so shadows (value 127) can be stripped cleanly!
 			self._bg_subtractors[table_id] = cv2.createBackgroundSubtractorMOG2(
 				history=200, varThreshold=32, detectShadows=True
 			)
@@ -240,10 +240,11 @@ class FLLDetector:
 	) -> List[np.ndarray]:
 		"""
 		Extracts moving object bounding boxes inside the active table zone while:
-		  1. Stripping MOG2 shadow pixels (value 127) via binary threshold at 200 (#11).
-		  2. Rejecting global lighting / camera auto-exposure jumps (#11).
-		  3. Evaluating multi-frame motion history (`_motion_tracks[table_id]`) so only
-		     blobs with genuine directional displacement across frames are returned (#9).
+		  1. Stripping MOG2 shadow pixels (value 127) via binary threshold at 200.
+		  2. Rejecting global lighting / camera auto-exposure jumps (>14% table area).
+		  3. Point #6 Fix: Performing strict 1-to-1 greedy matching (`used_track_indices`)
+		     between current contours and `_motion_tracks[table_id]` so two contours can
+		     NEVER be assigned to the same previous motion track!
 		"""
 		if not self.cfg.use_motion_discovery or frame is None or frame.size == 0:
 			return []
@@ -255,7 +256,6 @@ class FLLDetector:
 		bg_sub = self._get_bg_subtractor(table_id)
 		raw_fg = bg_sub.apply(frame)
 
-		# Point #11 Fix: Strip shadow pixels (marked as 127 by MOG2) and keep only true foreground (255)
 		_, fg_no_shadows = cv2.threshold(raw_fg, 200, 255, cv2.THRESH_BINARY)
 
 		if homography is not None:
@@ -264,8 +264,6 @@ class FLLDetector:
 		else:
 			table_area = float(w * h)
 
-		# Point #11 Fix: If >14% of the active table area changes simultaneously, it is a global
-		# lighting / shadow / camera exposure shift -> ignore motion on this frame!
 		changed_pixels = float(cv2.countNonZero(fg_no_shadows))
 		if changed_pixels > (table_area * 0.14):
 			return []
@@ -277,10 +275,8 @@ class FLLDetector:
 		min_area = float(self.cfg.motion_min_area_px)
 		max_area = table_area * float(self.cfg.motion_max_area_ratio)
 
-		prev_tracks = self._motion_tracks.get(table_id, [])
-		updated_tracks: List[Dict[str, float]] = []
-		verified_motion_boxes: List[np.ndarray] = []
-
+		# Collect valid candidate contours first
+		valid_contours: List[Tuple[float, float, np.ndarray]] = []
 		for cnt in contours:
 			area = float(cv2.contourArea(cnt))
 			if area < min_area or area > max_area:
@@ -292,21 +288,34 @@ class FLLDetector:
 			cx, cy = float(x + 0.5 * bw), float(y + 0.5 * bh)
 			if homography is not None and not homography.is_px_in_active_zone(cx, cy, margin_mm=20.0):
 				continue
+			valid_contours.append((cx, cy, np.array([x, y, x + bw, y + bh], dtype=float)))
 
-			bbox = np.array([x, y, x + bw, y + bh], dtype=float)
+		prev_tracks = self._motion_tracks.get(table_id, [])
+		active_prev_indices = [idx for idx, trk in enumerate(prev_tracks) if (step_idx - int(trk["last_seen"])) <= 5]
 
-			# Point #9 Fix: Match contour center against multi-frame motion history
-			best_trk = None
-			best_dist = 135.0
-			for trk in prev_tracks:
-				if (step_idx - int(trk["last_seen"])) > 5:
-					continue
-				d = float(np.hypot(cx - trk["cx"], cy - trk["cy"]))
-				if d < best_dist:
-					best_dist = d
-					best_trk = trk
+		# Point #6 Fix: Compute all (distance, contour_idx, prev_track_idx) pairs and assign 1-to-1 greedily!
+		pair_candidates: List[Tuple[float, int, int]] = []
+		for c_idx, (cx, cy, _) in enumerate(valid_contours):
+			for t_idx in active_prev_indices:
+				trk = prev_tracks[t_idx]
+				dist = float(np.hypot(cx - trk["cx"], cy - trk["cy"]))
+				if dist < 135.0:
+					pair_candidates.append((dist, c_idx, t_idx))
+		pair_candidates.sort(key=lambda item: item[0])
 
-			if best_trk is not None:
+		matched_contours: Dict[int, int] = {}
+		used_prev_tracks: Set[int] = set()
+		for dist, c_idx, t_idx in pair_candidates:
+			if c_idx not in matched_contours and t_idx not in used_prev_tracks:
+				matched_contours[c_idx] = t_idx
+				used_prev_tracks.add(t_idx)
+
+		updated_tracks: List[Dict[str, float]] = []
+		verified_motion_boxes: List[np.ndarray] = []
+
+		for c_idx, (cx, cy, bbox) in enumerate(valid_contours):
+			if c_idx in matched_contours:
+				best_trk = prev_tracks[matched_contours[c_idx]]
 				step_disp = float(np.hypot(cx - best_trk["cx"], cy - best_trk["cy"]))
 				total_disp = float(np.hypot(cx - best_trk["origin_cx"], cy - best_trk["origin_cy"]))
 				hits = int(best_trk["hits"]) + 1
@@ -321,7 +330,6 @@ class FLLDetector:
 					"step_disp": step_disp,
 				}
 				updated_tracks.append(new_trk)
-				# Require genuine multi-frame directional displacement (not stationary jitter)
 				if hits >= 2 and total_disp >= 8.0 and step_disp >= 2.0:
 					verified_motion_boxes.append(bbox)
 			else:
@@ -338,11 +346,9 @@ class FLLDetector:
 					}
 				)
 
-		# Keep recent tracks from the last 5 frames
-		for old_t in prev_tracks:
-			if (step_idx - int(old_t["last_seen"])) <= 4 and all(
-				float(np.hypot(old_t["cx"] - u["cx"], old_t["cy"] - u["cy"])) > 10.0 for u in updated_tracks
-			):
+		# Retain unmatched recent tracks from the last 4 frames
+		for t_idx, old_t in enumerate(prev_tracks):
+			if t_idx not in used_prev_tracks and (step_idx - int(old_t["last_seen"])) <= 4:
 				updated_tracks.append(old_t)
 
 		self._motion_tracks[table_id] = updated_tracks[:25]
@@ -357,18 +363,20 @@ class FLLDetector:
 				return "hand"
 			return None
 
-	def _run_ai_inference(self, frame: np.ndarray) -> List[Detection]:
+	def _run_ai_inference(self, frame: np.ndarray, max_det: Optional[int] = None) -> List[Detection]:
 		if self.model is None or frame is None or frame.size == 0:
 			return []
 
+		eff_max_det = int(max_det) if max_det is not None else int(self.cfg.max_det)
 		try:
-			ai_conf = max(0.15, float(self.cfg.conf_threshold) * 0.75)
+			# Allow lower-confidence AI candidates (down to 0.12) so they can be verified by motion overlap (#3)
+			ai_conf = max(0.12, float(self.cfg.conf_threshold) * 0.55)
 			results = self.model.predict(
 				source=frame,
 				imgsz=self.cfg.imgsz,
 				conf=ai_conf,
 				iou=self.cfg.iou_threshold,
-				max_det=self.cfg.max_det,
+				max_det=eff_max_det,
 				device=self.cfg.device,
 				verbose=False,
 			)
@@ -419,80 +427,45 @@ class FLLDetector:
 		table_id: int = 1,
 	) -> List[Detection]:
 		"""
-		Fuses YOLO AI detections with verified multi-frame MOG2 motion boxes:
+		Fuses YOLO AI detections with verified multi-frame MOG2 motion boxes (#3):
 		  1. Keeps confident AI 'hand' and 'attachment_jig' detections.
-		  2. Boosts AI 'robot' detections that overlap with verified motion (`source="hybrid"`),
-		     and records `_last_confirmed_robot[table_id]`.
-		  3. Point #10 Fix: Does NOT blindly turn unassociated motion blobs into false robots!
-		     When the custom FLL AI model is active, a motion blob is only accepted as a motion-bridged
-		     robot if it lies within a plausible continuity radius (280 px) of the last AI-confirmed
-		     robot position within the last 45 frames.
+		  2. Confirms & boosts AI 'robot' candidates that overlap with verified motion (`source="hybrid"`),
+		     while rejecting any AI 'robot' box that strongly overlaps a detected human hand.
+		  3. Point #3 Fix: Motion blobs are NEVER promoted to `robot` detections without an
+		     overlapping AI 'robot' detection! (Short AI dropouts are handled by Kalman coasting
+		     in `FLLRobotTracker` rather than fabricating unconfirmed motion robots.)
 		"""
 		fused: List[Detection] = []
 		hand_boxes: List[np.ndarray] = []
-		jig_boxes: List[np.ndarray] = []
-		robot_dets: List[Detection] = []
-		step_idx = self._motion_step.get(table_id, 0)
 
 		for det in ai_detections:
 			cx, cy = det.center_px
 			if homography is not None and not homography.is_px_in_active_zone(cx, cy):
 				continue
-
 			if det.class_name == "hand" and det.confidence >= max(0.35, self.cfg.conf_threshold):
 				hand_boxes.append(det.bbox_xyxy)
 				fused.append(det)
 			elif det.class_name == "attachment_jig" and det.confidence >= self.cfg.conf_threshold:
-				jig_boxes.append(det.bbox_xyxy)
 				fused.append(det)
-			elif det.class_name == "robot":
-				has_motion = any(_bbox_iou(det.bbox_xyxy, mb) >= 0.10 for mb in motion_boxes)
-				if has_motion:
-					det = Detection(
-						bbox_xyxy=det.bbox_xyxy,
-						confidence=min(0.99, det.confidence + 0.22),
-						class_id=0,
-						class_name="robot",
-						source="hybrid",
-					)
-				if det.confidence >= self.cfg.conf_threshold or has_motion:
-					robot_dets.append(det)
-					fused.append(det)
-					self._last_confirmed_robot[table_id] = (cx, cy, step_idx)
 
-		# Point #10 Fix: Only bridge AI dropouts if no AI robot was found on this table in the current frame
-		if not robot_dets and motion_boxes:
-			last_robot_info = self._last_confirmed_robot.get(table_id)
-			for mb in motion_boxes:
-				if any(_bbox_iou(mb, hb) >= 0.15 for hb in hand_boxes):
-					continue
-				if any(_bbox_iou(mb, jb) >= 0.20 for jb in jig_boxes):
-					continue
+		for det in ai_detections:
+			if det.class_name != "robot":
+				continue
+			cx, cy = det.center_px
+			if homography is not None and not homography.is_px_in_active_zone(cx, cy):
+				continue
 
-				mcx, mcy = float(0.5 * (mb[0] + mb[2])), float(0.5 * (mb[1] + mb[3]))
-
-				if self.is_custom_fll_model:
-					# With custom FLL model loaded: require proximity to a recently confirmed AI robot!
-					if last_robot_info is None:
-						continue
-					last_x, last_y, last_step = last_robot_info
-					if (step_idx - last_step) > 45:
-						continue
-					if float(np.hypot(mcx - last_x, mcy - last_y)) > 280.0:
-						continue
-
-				# Update continuity anchor and emit motion-bridged robot detection
-				self._last_confirmed_robot[table_id] = (mcx, mcy, step_idx)
-				motion_robot = Detection(
-					bbox_xyxy=mb,
-					confidence=0.62,
+			has_motion = any(_bbox_iou(det.bbox_xyxy, mb) >= 0.10 for mb in motion_boxes)
+			if has_motion:
+				det = Detection(
+					bbox_xyxy=det.bbox_xyxy,
+					confidence=min(0.99, det.confidence + 0.22),
 					class_id=0,
 					class_name="robot",
-					source="motion",
+					source="hybrid",
 				)
-				robot_dets.append(motion_robot)
-				fused.append(motion_robot)
-				break  # At most one robot exists per single FLL table!
+			if det.confidence >= self.cfg.conf_threshold:
+				fused.append(det)
 
 		return fused
 
@@ -505,10 +478,10 @@ class FLLDetector:
 		if frame is None or frame.size == 0:
 			return []
 
-		ai_dets = self._run_ai_inference(frame)
+		ai_dets = self._run_ai_inference(frame, max_det=self.cfg.max_det)
 		motion_boxes = self._extract_motion_boxes(frame, table_id=table_id, homography=homography)
 		if not motion_boxes and not self.cfg.use_motion_discovery:
-			return ai_dets
+			return [d for d in ai_dets if d.confidence >= self.cfg.conf_threshold]
 		return self.fuse_ai_and_motion(ai_dets, motion_boxes, homography=homography, table_id=table_id)
 
 	def detect_dual_table(
@@ -518,26 +491,19 @@ class FLLDetector:
 		homography2: Optional[TableHomography] = None,
 	) -> Tuple[List[Detection], List[Detection]]:
 		"""
-		Extracts the two independent table regions from the single central camera frame
-		(excluding the inter-table gap and outer borders), runs AI inference, and fuses
-		with each table's independent motion history.
+		Point #2 Fix: Extracts Table 1 and Table 2 into separate perspective-masked images
+		(`mask1` and `mask2`) and runs `detect` with a dedicated `self.cfg.max_det` budget
+		for each table independently so neither table can starve the other!
 		"""
 		if frame is None or frame.size == 0:
 			return [], []
 
 		mask1 = homography1.apply_roi_mask(frame)
+		dets1 = self.detect(mask1, table_id=1, homography=homography1)
+
 		if homography2 is None:
-			dets1 = self.detect(mask1, table_id=1, homography=homography1)
 			return dets1, []
 
 		mask2 = homography2.apply_roi_mask(frame)
-		combined_frame = cv2.bitwise_or(mask1, mask2)
-
-		all_ai_dets = self._run_ai_inference(combined_frame)
-
-		motion1 = self._extract_motion_boxes(mask1, table_id=1, homography=homography1)
-		motion2 = self._extract_motion_boxes(mask2, table_id=2, homography=homography2)
-
-		dets1 = self.fuse_ai_and_motion(all_ai_dets, motion1, homography=homography1, table_id=1)
-		dets2 = self.fuse_ai_and_motion(all_ai_dets, motion2, homography=homography2, table_id=2)
+		dets2 = self.detect(mask2, table_id=2, homography=homography2)
 		return dets1, dets2

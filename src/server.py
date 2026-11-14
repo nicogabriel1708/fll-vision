@@ -35,7 +35,11 @@ except ImportError:
 
 from src.config_loader import AppConfig, save_config_updates_to_yaml
 from src.database import FLLDatabase
-from src.homography import TableHomography, detect_two_independent_tables, order_quad_points
+from src.homography import (
+    TableHomography,
+    detect_two_independent_tables,
+    order_quad_points,
+)
 from src.match_state import MatchStateManager
 from src.stream_compositor import DualStreamCompositor
 from src.video_discovery import discover_available_video_sources, probe_video_source
@@ -98,6 +102,10 @@ class TelemetryDashboardServer:
         self._latest_minimap_jpeg: Optional[bytes] = None
         self._latest_telemetry: dict = {"status": "initializing", "runs_summary": []}
         self._frame_seq: int = 0
+        self.consecutive_frame_errors: int = 0
+        self.total_frame_errors: int = 0
+        self.last_frame_error: Optional[str] = None
+        self.last_successful_frame_ts: float = 0.0
 
         self.app = FastAPI(title="FLL-Vision Production Server") if FastAPI else None
         if self.app is not None:
@@ -148,6 +156,15 @@ class TelemetryDashboardServer:
                 self._latest_minimap_jpeg = jpgm
             self._latest_telemetry = telemetry
             self._frame_seq += 1
+            self.consecutive_frame_errors = 0
+            self.last_successful_frame_ts = time.time()
+
+    def record_frame_error(self, err_msg: str):
+        """Records a frame processing exception so /api/health can detect pipeline failures (#18)."""
+        with self._lock:
+            self.consecutive_frame_errors += 1
+            self.total_frame_errors += 1
+            self.last_frame_error = str(err_msg)
 
     def get_combined_match_payload(self) -> dict:
         snap = self.match_state.get_snapshot()
@@ -469,25 +486,33 @@ class TelemetryDashboardServer:
                 self.compositor.reset_viewports()
             if self.detector is not None:
                 self.detector.reset_motion_history()
+            if self.visualizer is not None:
+                self.visualizer.reset_heatmaps()
+            # Point #15 Fix: Always enforce recalibration attempt when switching to a new camera/video source!
             self.needs_recalibration = True
 
+            recalibrated_on_switch = False
             if jpg_bytes is not None:
                 arr = np.frombuffer(jpg_bytes, dtype=np.uint8)
                 decoded = cv2.imdecode(arr, cv2.IMREAD_COLOR)
                 if decoded is not None:
                     with self._lock:
                         self._latest_raw_frame = decoded
-                    # Point #6: If auto_detect_borders is active, recalibrate Table 1 & Table 2 on the new camera's first frame!
-                    if self.cfg.table.auto_detect_borders:
-                        ok_det, t1_c, t2_c = detect_two_independent_tables(
-                            decoded, self.homography.cfg.src_corners_px, self.homography2.cfg.src_corners_px
-                        )
-                        if ok_det:
-                            try:
-                                self.homography.update_corners(t1_c)
-                                self.homography2.update_corners(t2_c)
-                            except ValueError:
-                                pass
+                    fh_d, fw_d = decoded.shape[:2]
+                    ok_det, t1_c, t2_c = detect_two_independent_tables(
+                        decoded, self.homography.cfg.src_corners_px, self.homography2.cfg.src_corners_px
+                    )
+                    if ok_det:
+                        try:
+                            c1_new, c2_new = TableHomography.update_dual_calibration_atomic(
+                                self.homography, self.homography2, t1_c, t2_c, frame_size=(fw_d, fh_d)
+                            )
+                            self.cfg.table.src_corners_px = c1_new
+                            self.cfg.table.table2_corners_px = c2_new
+                            recalibrated_on_switch = True
+                            self.needs_recalibration = False
+                        except ValueError:
+                            pass
 
             self.cfg.video.source = new_source
             save_config_updates_to_yaml(self.config_path, video_source=new_source)
@@ -593,27 +618,45 @@ class TelemetryDashboardServer:
                 raise HTTPException(status_code=401, detail="Unauthorized")
             body = await request.json()
 
+            with self._lock:
+                if self._latest_raw_frame is not None:
+                    fh, fw = self._latest_raw_frame.shape[:2]
+                    frame_bounds = (fw, fh)
+                else:
+                    frame_bounds = (int(self.cfg.video.width), int(self.cfg.video.height))
+
+            t1_corners_in = body.get("corners_px", self.homography.cfg.src_corners_px)
+            t2_corners_in = body.get("table2_corners_px", self.homography2.cfg.src_corners_px)
+            t2_mode_in = body.get("table2_active_half_mode", self.homography2.cfg.active_half_mode)
+            t2_x_in = body.get("table2_active_x_ratio", self.homography2.cfg.active_x_ratio)
+            t2_y_in = body.get("table2_active_y_ratio", self.homography2.cfg.active_y_ratio)
+
+            # Points #4, #5, #10, #11 Fix: Atomically validate and update BOTH Table 1 and Table 2!
+            # If Table 2 fails or overlaps Table 1, Table 1 is guaranteed to remain unmodified.
             try:
-                ordered1 = self.homography.update_calibration(
-                    corners_px=body.get("corners_px", self.homography.cfg.src_corners_px),
-                    active_half_mode=body.get("active_half_mode"),
-                    active_x_ratio=body.get("active_x_ratio"),
-                    active_y_ratio=body.get("active_y_ratio"),
-                )
-
-                t2_corners_in = body.get("table2_corners_px", self.homography2.cfg.src_corners_px)
-                t2_mode_in = body.get("table2_active_half_mode", self.homography2.cfg.active_half_mode)
-                t2_x_in = body.get("table2_active_x_ratio", self.homography2.cfg.active_x_ratio)
-                t2_y_in = body.get("table2_active_y_ratio", self.homography2.cfg.active_y_ratio)
-
-                ordered2 = self.homography2.update_calibration(
-                    corners_px=t2_corners_in,
-                    active_half_mode=t2_mode_in,
-                    active_x_ratio=t2_x_in,
-                    active_y_ratio=t2_y_in,
+                ordered1, ordered2 = TableHomography.update_dual_calibration_atomic(
+                    homography1=self.homography,
+                    homography2=self.homography2,
+                    corners1_px=t1_corners_in,
+                    corners2_px=t2_corners_in,
+                    active_half_mode1=body.get("active_half_mode"),
+                    active_x_ratio1=body.get("active_x_ratio"),
+                    active_y_ratio1=body.get("active_y_ratio"),
+                    active_half_mode2=t2_mode_in,
+                    active_x_ratio2=t2_x_in,
+                    active_y_ratio2=t2_y_in,
+                    frame_size=frame_bounds,
                 )
             except ValueError as val_err:
                 raise HTTPException(status_code=400, detail=f"Ungültige Tischgeometrie: {val_err}")
+
+            # Point #13 Fix: Update `auto_detect_borders` live in runtime config and trigger recalibration if enabled!
+            auto_det_flag = bool(body.get("auto_detect_borders", False))
+            self.cfg.table.auto_detect_borders = auto_det_flag
+            self.homography.cfg.auto_detect_borders = auto_det_flag
+            self.homography2.cfg.auto_detect_borders = auto_det_flag
+            if auto_det_flag:
+                self.needs_recalibration = True
 
             self.cfg.table.src_corners_px = ordered1
             self.cfg.table.table2_corners_px = ordered2
@@ -628,12 +671,15 @@ class TelemetryDashboardServer:
                 self.compositor.reset_viewports()
             if self.detector is not None:
                 self.detector.reset_motion_history()
+            # Point #14 Fix: Reset both heatmaps on recalibration so old heat spots don't sit at wrong coordinates!
+            if self.visualizer is not None:
+                self.visualizer.reset_heatmaps()
 
             save_config_updates_to_yaml(
                 self.config_path,
                 corners_px=ordered1,
                 table2_corners_px=ordered2,
-                auto_detect=body.get("auto_detect_borders", False),
+                auto_detect=auto_det_flag,
                 active_half_mode=self.homography.cfg.active_half_mode,
                 active_x_ratio=self.homography.cfg.active_x_ratio,
                 active_y_ratio=self.homography.cfg.active_y_ratio,
@@ -643,6 +689,7 @@ class TelemetryDashboardServer:
             )
             return JSONResponse({
                 "status": "saved",
+                "auto_detect_borders": auto_det_flag,
                 "corners_px": ordered1,
                 "table2_corners_px": ordered2,
             })
@@ -883,7 +930,7 @@ class TelemetryDashboardServer:
 
         @self.app.get("/api/health")
         async def api_health():
-            # Point #20 Fix: Verify real subsystem health (Camera, AI Detector, Homographies, Trackers)
+            # Points #16, #17, #18, #20 Fix: Comprehensive subsystem health check
             now = time.time()
             camera_ok = True
             frame_age_s = None
@@ -895,20 +942,35 @@ class TelemetryDashboardServer:
                     if frame_age_s > 5.0:
                         camera_ok = False
 
-            detector_ok = True
+            # Point #17 Fix: Detector must exist, have a loaded model (`is_ready()`), and not have consecutive errors!
+            detector_ok = False
+            det_model_loaded = False
             det_errors = 0
             det_last_err = None
             if self.detector is not None:
                 det_errors = int(getattr(self.detector, "consecutive_errors", 0))
                 det_last_err = getattr(self.detector, "last_error", None)
-                if det_errors >= 5:
-                    detector_ok = False
+                det_model_loaded = getattr(self.detector, "model", None) is not None
+                detector_ok = bool(det_model_loaded and det_errors < 3)
 
+            # Point #16 Fix: Verify BOTH Tracker 1 AND Tracker 2 (plus their Kalman states & non-overlapping homographies)
             homography1_ok = self.homography is not None and bool(np.all(np.isfinite(self.homography.H_px_to_mm)))
             homography2_ok = self.homography2 is not None and bool(np.all(np.isfinite(self.homography2.H_px_to_mm)))
-            trackers_ok = (self.tracker is not None) and homography1_ok and homography2_ok
+            tracker1_ok = self.tracker is not None and bool(np.all(np.isfinite(self.tracker.kf.x)))
+            tracker2_ok = self.tracker2 is not None and bool(np.all(np.isfinite(self.tracker2.kf.x)))
+            trackers_ok = tracker1_ok and tracker2_ok and homography1_ok and homography2_ok
 
-            all_ok = camera_ok and detector_ok and trackers_ok
+            # Point #18 Fix: Check persistent frame processing errors and stale pipeline output
+            with self._lock:
+                consec_frame_err = self.consecutive_frame_errors
+                total_frame_err = self.total_frame_errors
+                last_frame_err = self.last_frame_error
+                last_ok_ts = self.last_successful_frame_ts
+            pipeline_ok = consec_frame_err < 3
+            if last_ok_ts > 0.0 and (now - last_ok_ts) > 5.0:
+                pipeline_ok = False
+
+            all_ok = camera_ok and detector_ok and trackers_ok and pipeline_ok
             payload = {
                 "status": "healthy" if all_ok else "degraded",
                 "frame_seq": self._frame_seq,
@@ -916,11 +978,18 @@ class TelemetryDashboardServer:
                     "camera_ok": camera_ok,
                     "frame_age_s": frame_age_s,
                     "detector_ok": detector_ok,
+                    "detector_model_loaded": det_model_loaded,
                     "detector_consecutive_errors": det_errors,
                     "detector_last_error": det_last_err,
+                    "tracker1_ok": tracker1_ok,
+                    "tracker2_ok": tracker2_ok,
                     "trackers_ok": trackers_ok,
                     "table1_homography_ok": homography1_ok,
                     "table2_homography_ok": homography2_ok,
+                    "pipeline_ok": pipeline_ok,
+                    "consecutive_frame_errors": consec_frame_err,
+                    "total_frame_errors": total_frame_err,
+                    "last_frame_error": last_frame_err,
                 },
             }
             return JSONResponse(status_code=200 if all_ok else 503, content=payload)
