@@ -9,15 +9,15 @@ Das Repository vereint das KI-Backend (Multi-Class YOLO11 + NVIDIA TensorRT FP16
 ## 1\. Übersicht der Seiten, Routen & Benutzer (Pages, Routes & Users)
 
 Name der Seite           | Route            | Login-Route                    | User (Benutzer / Rolle)            | Beschreibung
-:----------------------- | :--------------- | :----------------------------- | :--------------------------------- | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+:----------------------- | :--------------- | :----------------------------- | :--------------------------------- | :-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 **Match-Stream**         | `/`              | `-` _(Öffentlich / Read-Only)_ | `-` _(Kein Login erforderlich)_    | Öffentlicher Livestream im exakten `fll-robot-game-livestream` Design (Orange Topbar, abgeschrägte Red/Blue Team-Banner in `CARDOT`, `8:88` 7-Segment-Timer in `Digital Dismay`, Original-Audio-SFX, Idle-Screen) mit beiden sauberen Team-Tisch-Streams nebeneinander (`/video-stream/red-team` & `/video-stream/blue-team`) bei identischem Auto-Zoom und ohne Heatmap/HUD.
 **Volunteer Control**    | `/control`       | `/login/control`               | **`volunteers`** _(sowie `admin`)_ | Mobile-optimierte Match-Steuerung für Volunteers: `.txt`-Teamlisten-Upload & Team-Auswahl (Red Team / Blue Team), Einstellen der Match- & Pre-Countdown-Zeiten, Start/Pause/Reset/Abort, Idle-Screen, Kamera-Swap, **Umschalten der Video-Quelle (Standard: USB-Kamera `/dev/video0`, oder RTSP-Link / `.mp4` mit Bild-Check vor dem Speichern)** sowie sämtliche Tastatur-Shortcuts (`Hold S`, `Hold R`, `Hold E`, `Space`, `A`/`Esc`, `W`, `↑`/`↓`).
 **System Configuration** | `/configuration` | `/login/configuration`         | **`engineers`** _(sowie `admin`)_  | Geschützte Backend-Konfigurationsseite mit 4 Menüs/Tabs auf derselben Seite:<br>
+
 1\. Video-Quellen-Auswahl (USB/RTSP/MP4 mit Bild-Check), Tisch-Größe, Selection-Box Crop & **Aktive Tischhälften-Maskierung** (ignoriert die ungenutzte Tischhälfte mit Händen/Flaschen sowie den Außenbereich)<br>
 2\. **Einheitlicher Auto-Zoom-Faktor (`zoom_factor`)** für beide Team-Streams & 1:1 Seitenrand-Korrektur<br>
 3\. Live **2D Bird's-Eye Heatmap** & **Lauf-Dokumentation (Runs)** mit PNG-, CSV- & JSON-Export<br>
-4\. KI-Tracker-, Kalman- & Hand-Veto-Parameter
-**Admin Panel**          | `/admin`         | `/login/admin`                 | **`admin`**                        | Geschützte Benutzer- und Teamverwaltung für den Hauptadministrator (`admin`) zum Anlegen, Passwort-Ändern und Löschen von `volunteers`-, `engineers`- und `admin`-Benutzern sowie zur Pflege der FLL-Teams in der SQLite-Datenbank.
+4\. KI-Tracker-, Kalman- & Hand-Veto-Parameter **Admin Panel** | `/admin` | `/login/admin` | **`admin`** | Geschützte Benutzer- und Teamverwaltung für den Hauptadministrator (`admin`) zum Anlegen, Passwort-Ändern und Löschen von `volunteers`-, `engineers`- und `admin`-Benutzern sowie zur Pflege der FLL-Teams in der SQLite-Datenbank.
 
 --------------------------------------------------------------------------------
 
@@ -184,7 +184,7 @@ Ordner                      | Zweck                                             
   ./run_all.sh
   ```
 
-   Das Skript extrahiert die maskierten Frames, annotiert `robot` und `hand` automatisch via `YOLO-World` + Bewegungsanalyse, trainiert `YOLO11s` auf der DGX Spark GPU und kompiliert das fertige Modell als **FP16 TensorRT Engine (`models/fll_yolo11s.engine`)**.
+  Das Skript extrahiert die maskierten Frames, annotiert `robot` und `hand` automatisch via `YOLO-World` + Bewegungsanalyse, trainiert `YOLO11s` auf der DGX Spark GPU und kompiliert das fertige Modell als **FP16 TensorRT Engine (`models/fll_yolo11s.engine`)**.
 
 --------------------------------------------------------------------------------
 
